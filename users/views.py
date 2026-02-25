@@ -19,6 +19,7 @@ from appointments.models import Appointments
 from django.utils import timezone
 from django.core.exceptions import PermissionDenied
 from sitecontent.views import get_latest_website_content
+from .forms import UserSignUpForm
 
 
 # Directs to login page
@@ -75,6 +76,15 @@ def signup(r):
 
         password1 = r.POST.get('password1') or ""
         password2 = r.POST.get('password2') or ""
+
+        if (first_name == "" or 
+            last_name == "" or 
+            email == "" or 
+            phone_number == "" or 
+            password1 == "" or 
+            password2 == ""):
+            messages.error(r, "All fields must be filled in")
+            return render(r, "users/signup.html")
 
         # Basic checks
         if password1 != password2:
