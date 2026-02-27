@@ -19,7 +19,6 @@ from appointments.models import Appointments
 from django.utils import timezone
 from django.core.exceptions import PermissionDenied
 from sitecontent.views import get_latest_website_content
-from .forms import UserSignUpForm
 
 
 # Directs to login page
