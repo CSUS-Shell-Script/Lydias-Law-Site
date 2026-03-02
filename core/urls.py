@@ -63,7 +63,6 @@ urlpatterns = [
     path("client/contact/", contact, {'client': True}, name="client_contact"),
     path("client/dashboard/", users_client_dashboard, name="client_dashboard"),
     path("client/practice-areas/", views.client_practice_areas, name="client_practice_areas"),
-    path("client/schedule/", views.client_schedule, name="client_schedule"),
     path("client/invoices/", views.client_invoices, name="client_invoices"),
     path("client/privacy/", views.client_privacy, name="client_privacy"),
     path("client/appointment_confirmation/", views.client_appointment_confirmation, name="client_appointment_confirmation"),

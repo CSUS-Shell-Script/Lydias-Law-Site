@@ -273,8 +273,39 @@ def admin_appointment_update_status(request, pk):
 # Client Views
 #@login_required
 def client_about(r): return render(r, "client/about.html")
-#@login_required
-def client_account(r): return render(r, "client/account.html")
+
+
+# Client account/profile view
+@login_required
+def client_account(r):
+    context = get_user_account_data(r)
+    return render(r, "client/account.html", context)
+
+# Get feilds for client's account/profile view
+def get_user_account_data(request):
+    user = request.user # get user table
+
+    # format the phone number for UI
+    raw_phone = getattr(user, "phone_number", "")
+    #removes characters in phone numer that aren't digits
+    digits = ""
+    for ch in str(raw_phone):
+        if ch.isdigit():
+            digits += ch
+
+    if len(digits) == 10:
+        phone = f"({digits[:3]}) {digits[3:6]}-{digits[6:]}"
+    else:
+        phone = str(raw_phone)  # fallback
+
+    return {
+        # will be "" if not present
+        "email": user.email or "",
+        "first_name": user.first_name or "",
+        "last_name": user.last_name or "",
+        "phone": phone or ""
+    }
+
 #@login_required
 def client_contact(r): return render(r, "client/contact.html")
 #@login_required
@@ -283,8 +314,6 @@ def client_contact(r): return render(r, "client/contact.html")
 def client_practice_areas(r):
     content = WebsiteContent.objects.latest('created_at')
     return render(r, "client/practice_areas.html", {"content": content})
-#@login_required
-def client_schedule(r): return render(r, "client/schedule.html")
 
 #@login_required
 def client_invoices(r): 
