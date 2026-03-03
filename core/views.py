@@ -19,6 +19,9 @@ from finances.models import Invoice
 from appointments.models import Appointments, Invitee
 from users.views import is_admin_user
 from django.utils import timezone
+from users.models import User
+from django.db.models import Q
+import re
 
 
 ''' Are these needed anymore if site content is covering them?
@@ -57,8 +60,51 @@ def login(r):
 #def admin_dashboard(r): return render(r, "admin/dashboard.html")
 # @login_required
 def admin_schedule(r): return render(r, "admin/schedule.html")
-# @login_required
-def admin_clients(r): return render(r, "admin/clients.html")
+
+@login_required
+def admin_clients(request):
+    users = User.objects.filter(role__in=[User.Role.CLIENT])
+
+    # Search
+    search_query = request.GET.get('search', '').strip()
+    if search_query:
+        words = search_query.split()  # split multi-word search
+        search_filter = Q()
+        for word in words:
+            search_filter |= (
+                Q(first_name__icontains=word) |
+                Q(last_name__icontains=word) |
+                Q(email__icontains=word) |
+                Q(phone_number__icontains=word)
+            )
+        users = users.filter(search_filter)
+
+    # Balance filter
+    balance_filter = request.GET.get('balance')
+    if balance_filter == 'has_balance':
+        users = users.filter(retainer_balance__gt=0)
+    elif balance_filter == 'no_balance':
+        users = users.filter(retainer_balance=0)
+
+    # Sorting
+    sort = request.GET.get('sort', 'asc')
+    if sort == 'asc':
+        users = users.order_by('first_name')
+    elif sort == 'desc':
+        users = users.order_by('-first_name')
+
+    # Pagination
+    paginator = Paginator(users, 10)  # 10 users per page
+    page_number = request.GET.get('page', 1)  # default to first page
+    page_obj = paginator.get_page(page_number)
+
+    return render(request, 'admin/clients.html', {
+        'page_obj': page_obj,
+        'search_query': search_query,
+        'balance_filter': balance_filter,
+        'sort': sort,
+    })
+
 # @login_required
 def admin_editor(request):
     """
@@ -286,7 +332,7 @@ def client_practice_areas(r):
 #@login_required
 def client_schedule(r): return render(r, "client/schedule.html")
 
-#@login_required
+@login_required
 def client_invoices(r): 
     user = r.user
 
