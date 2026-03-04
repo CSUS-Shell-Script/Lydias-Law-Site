@@ -17,8 +17,9 @@ from sitecontent.models import WebsiteContent
 from django.conf import settings
 from finances.models import Invoice
 from appointments.models import Appointments, Invitee
-from users.views import is_admin_user
 from django.utils import timezone
+from django.core.exceptions import PermissionDenied
+from core.decorators import superuser_required
 
 
 ''' Are these needed anymore if site content is covering them?
@@ -53,13 +54,13 @@ def login(r):
     return render(r, "users/login.html", {"role": role})
 
 # admin views (login temporarily disabled for testing)
-# @login_required
+# @superuser_required
 #def admin_dashboard(r): return render(r, "admin/dashboard.html")
-# @login_required
+# @superuser_required
 def admin_schedule(r): return render(r, "admin/schedule.html")
-# @login_required
+# @superuser_required
 def admin_clients(r): return render(r, "admin/clients.html")
-# @login_required
+# @superuser_required
 def admin_editor(request):
     """
     Admin editor view for editing WebsiteContent.
@@ -91,16 +92,15 @@ def admin_editor(request):
         'form': form,
         'content': content,
     })
-# @login_required
+# @superuser_required
 def admin_history(r): return render(r, "admin/history.html")
-# @login_required
+# @superuser_required
 def admin_appointment_confirmation(r): return render(r, "admin/appointment_confirmation.html")
-# @login_required
+# @superuser_required
 def admin_create_invoices(r): return render(r, "admin/create_invoice.html")
 
-@login_required
+@superuser_required
 def admin_appointments(request):
-    is_admin_user(request.user)
 
     qs = Appointments.objects.select_related('user_id').prefetch_related('invitees').all()
 
@@ -129,9 +129,8 @@ def admin_appointments(request):
         'date_to': date_to,
     })
 
-@login_required
+@superuser_required
 def admin_appointment_detail(request, pk):
-    is_admin_user(request.user)
 
     appointment = get_object_or_404(
         Appointments.objects.select_related('user_id').prefetch_related('invitees'),
@@ -145,9 +144,8 @@ def admin_appointment_detail(request, pk):
 
 
 @require_POST
-@login_required
+@superuser_required
 def admin_appointment_cancel(request, pk):
-    is_admin_user(request.user)
 
     appointment = get_object_or_404(
         Appointments.objects.prefetch_related("invitees"),
@@ -203,9 +201,8 @@ def admin_appointment_cancel(request, pk):
 
 
 @require_POST
-@login_required
+@superuser_required
 def admin_appointment_update_status(request, pk):
-    is_admin_user(request.user)
 
     appointment = get_object_or_404(Appointments.objects.prefetch_related("invitees"), pk=pk)
     next_url = request.POST.get("next") or reverse("admin_appointment_detail", args=[pk])

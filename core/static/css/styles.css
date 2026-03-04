@@ -19,6 +19,13 @@ body {
 
 }
 
+.btn-outline-secondary:hover,
+.btn.outline-secondary:focus {
+    background-color: #a1acab;
+    color: #fff;
+    text-decoration: none;
+}
+
 a.btn-custom {
     background-color: #2d7a73;
     font-weight: 500;
