@@ -8,6 +8,7 @@ from allauth.account.utils import complete_signup
 from allauth.account import app_settings as allauth_settings
 from allauth.account.adapter import get_adapter
 from allauth.account.models import EmailAddress, EmailConfirmation, get_emailconfirmation_model
+from allauth.socialaccount.models import SocialApp
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from django.http import Http404
@@ -24,7 +25,8 @@ from sitecontent.views import get_latest_website_content
 # Directs to login page
 def login(r): 
     role = r.GET.get("role", "guest")
-    return render(r, "users/login.html", {"role": role})
+    google_login_enabled = SocialApp.objects.filter(provider="google").exists()
+    return render(r, "users/login.html", {"role": role, "google_login_enabled": google_login_enabled})
 
 # Handles login form submission and authenticates user
 @require_http_methods(["GET", "POST"])
@@ -35,24 +37,64 @@ def login_view(request):
     """
     if request.method == "GET":
         role = request.GET.get("role", "guest")
-        return render(request, "users/login.html", {"role": role})
+        google_login_enabled = SocialApp.objects.filter(provider="google").exists()
+        return render(request, "users/login.html", {"role": role, "google_login_enabled": google_login_enabled})
 
     # POST
+    role = (request.POST.get("role") or request.GET.get("role") or "guest").strip().lower()
     email = (request.POST.get("email") or "").strip().lower()
     password = request.POST.get("password") or ""
+    google_login_enabled = SocialApp.objects.filter(provider="google").exists()
 
     # authenticate() will look up by USERNAME_FIELD (email in our model)
     user = authenticate(request, email=email, password=password)
 
     if user is None:
-        # Wrong email/password
-        messages.error(request, "Invalid credentials.")
-        return render(request, "users/login.html", {"role": request.GET.get("role", "guest")}, status=401)
+        User = get_user_model()
+        if role == "admin":
+            email_exists = User.objects.filter(email__iexact=email, is_staff=True).exists()
+        else:
+            email_exists = User.objects.filter(email__iexact=email, is_staff=False).exists()
+
+        if not email_exists:
+            messages.error(request, "Invalid email.")
+        else:
+            messages.error(request, "Invalid password.")
+
+        return render(
+            request,
+            "users/login.html",
+            {"role": role, "google_login_enabled": google_login_enabled},
+            status=401,
+        )
 
     if not user.is_active:
         # Users have is_active=False until email is verified
         messages.error(request, "Please verify your email to activate your account.")
-        return render(request, "users/login.html", {"role": request.GET.get("role", "guest")}, status=403)
+        return render(
+            request,
+            "users/login.html",
+            {"role": role, "google_login_enabled": google_login_enabled},
+            status=403,
+        )
+
+    # Enforce login intent (admin vs client).
+    if role == "admin" and not user.is_staff:
+        messages.error(request, "Invalid email.")
+        return render(
+            request,
+            "users/login.html",
+            {"role": role, "google_login_enabled": google_login_enabled},
+            status=401,
+        )
+    if role != "admin" and user.is_staff:
+        messages.error(request, "Invalid email.")
+        return render(
+            request,
+            "users/login.html",
+            {"role": role, "google_login_enabled": google_login_enabled},
+            status=401,
+        )
 
     # Success: log them in and redirect
     auth_login(request, user)
