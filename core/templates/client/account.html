@@ -114,6 +114,20 @@ a.btn:hover {
   display: flex;
 }
 
+.field-error {
+  color: #dc3545;
+  font-size: 0.85rem;
+  margin-top: -6px;
+  margin-bottom: 6px;
+  display: block;
+}
+
+.read-only-badge {
+  font-size: 0.75rem;
+  color: #6c757d;
+  font-family: sans-serif;
+}
+
 /* For phone/small screen */
 @media (max-width: 900px) {
   .account-wrapper {
@@ -168,11 +182,11 @@ a.btn:hover {
     <button class="btn" onclick="openModal('name', '{{ first_name }}', '{{ last_name }}')">Edit</button>
   </div>
 
-  <!-- Email -->
+  <!-- Email (read-only) -->
   <div class="account-field">
     <div class="field-text">Email:</div>
-    <div class="field-text">{{ email }}</div>
-    <button class="btn" onclick="openModal('email', '{{ email|escapejs }}')">Edit</button>
+    <div class="field-text">{{ email }} <span class="read-only-badge">(read-only)</span></div>
+    <div></div>
   </div>
 
   <!-- Phone -->
@@ -200,17 +214,20 @@ a.btn:hover {
             {% csrf_token %}
 
             <input type="hidden" name="field" id="fieldInput">
-            
+
             <!-- Email/Phone input (only 1 input line) -->
-            <input type="text" name="new_value" id="singleInput" class="modal-input">
+            <input type="text" name="new_value" id="singleInput" class="modal-input" inputmode="numeric" placeholder="Digits only">
+            <span class="field-error" id="singleError"></span>
 
             <!-- Name inputs (2 inputs for first/last name) -->
             <div id="nameInputs">
-              <label class=field-text> First Name:</label>
+              <label class="field-text">First Name:</label>
               <input type="text" name="first_name" id="firstNameInput" class="modal-input" placeholder="First name">
+              <span class="field-error" id="firstNameError"></span>
 
-              <label class=field-text > Last Name:</label>
+              <label class="field-text">Last Name:</label>
               <input type="text" name="last_name" id="lastNameInput" class="modal-input" placeholder="Last name">
+              <span class="field-error" id="lastNameError"></span>
             </div>
 
             <div class="btn-container">
@@ -225,56 +242,97 @@ a.btn:hover {
 <script>
 
 const modal = document.getElementById("editModal");
-const modalContent = modal.querySelector(".modal-content");
+
+function clearErrors() {
+  document.getElementById("singleError").textContent = "";
+  document.getElementById("firstNameError").textContent = "";
+  document.getElementById("lastNameError").textContent = "";
+}
 
 function openModal(field, value1="", value2="") {
-  const modal = document.getElementById("editModal");
   const singleInput = document.getElementById("singleInput");
   const nameInputs = document.getElementById("nameInputs");
   const firstNameInput = document.getElementById("firstNameInput");
   const lastNameInput = document.getElementById("lastNameInput");
-  const labels = {
-    name: "Name",
-    email: "Email",
-    phone: "Phone Number"
-  };
+  const labels = { name: "Name", phone: "Phone Number" };
 
+  clearErrors();
   modal.style.display = "flex";
   document.getElementById("fieldInput").value = field;
 
-  if (field === "name") { // Show name inputs
-      singleInput.style.display = "none"; // block single input
-      nameInputs.style.display = "block"; //  show 2 inputs for name
-
-      firstNameInput.value = value1 || "";
-      lastNameInput.value = value2 || "";
-
-      document.getElementById("modalTitle").innerText = "Edit " + (labels[field] || field);
-
-  } else { // Single input (email, phone fields)
-      singleInput.style.display = "block"; // show single input
-      nameInputs.style.display = "none"; // block 2 name inputs
-
-      singleInput.value = value1 || "";
-      singleInput.focus();
-
-      document.getElementById("modalTitle").innerText = "Edit " + (labels[field] || field);
+  if (field === "name") {
+    singleInput.style.display = "none";
+    nameInputs.style.display = "block";
+    firstNameInput.value = value1 || "";
+    lastNameInput.value = value2 || "";
+    firstNameInput.focus();
+  } else {
+    singleInput.style.display = "block";
+    nameInputs.style.display = "none";
+    singleInput.value = field === "phone" ? (value1 || "").replace(/\D/g, "") : (value1 || "");
+    singleInput.focus();
   }
+
+  document.getElementById("modalTitle").innerText = "Edit " + (labels[field] || field);
 }
 
 function closeModal() {
   modal.style.display = "none";
+  clearErrors();
   document.getElementById("singleInput").value = "";
   document.getElementById("firstNameInput").value = "";
   document.getElementById("lastNameInput").value = "";
 }
 
-// Click outside to close model
+// Client-side inline validation before submit
+document.getElementById("editForm").addEventListener("submit", function(e) {
+  clearErrors();
+  const field = document.getElementById("fieldInput").value;
+  let valid = true;
+
+  if (field === "name") {
+    const first = document.getElementById("firstNameInput").value.trim();
+    const last = document.getElementById("lastNameInput").value.trim();
+    if (!first) {
+      document.getElementById("firstNameError").textContent = "First name cannot be blank.";
+      valid = false;
+    }
+    if (!last) {
+      document.getElementById("lastNameError").textContent = "Last name cannot be blank.";
+      valid = false;
+    }
+  } else if (field === "phone") {
+    const phone = document.getElementById("singleInput").value.trim();
+    if (!phone) {
+      document.getElementById("singleError").textContent = "Phone number cannot be blank.";
+      valid = false;
+    } else if (!/^\d{7,15}$/.test(phone)) {
+      document.getElementById("singleError").textContent = "Phone number must be 7–15 digits (numbers only).";
+      valid = false;
+    }
+  }
+
+  if (!valid) e.preventDefault();
+});
+
+// Strip non-digits from phone input as the user types
+document.getElementById("singleInput").addEventListener("input", function() {
+  if (document.getElementById("fieldInput").value === "phone") {
+    const pos = this.selectionStart;
+    const cleaned = this.value.replace(/\D/g, "");
+    if (this.value !== cleaned) {
+      this.value = cleaned;
+      this.setSelectionRange(pos - 1, pos - 1);
+    }
+  }
+});
+
+// Click outside to close modal
 modal.addEventListener("click", (e) => {
   if (e.target === modal) closeModal();
 });
 
-// Escape key to close model
+// Escape key to close modal
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && modal.style.display === "flex") closeModal();
 });
