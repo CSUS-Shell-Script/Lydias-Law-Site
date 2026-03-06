@@ -20,6 +20,9 @@ from appointments.models import Appointments, Invitee
 from django.utils import timezone
 from django.core.exceptions import PermissionDenied
 from core.decorators import superuser_required
+from users.models import User
+from django.db.models import Q
+import re
 
 
 ''' Are these needed anymore if site content is covering them?
@@ -61,6 +64,52 @@ def admin_schedule(r): return render(r, "admin/schedule.html")
 # @superuser_required
 def admin_clients(r): return render(r, "admin/clients.html")
 # @superuser_required
+
+@login_required
+def admin_clients(request):
+    users = User.objects.filter(role__in=[User.Role.CLIENT])
+
+    # Search
+    search_query = request.GET.get('search', '').strip()
+    if search_query:
+        words = search_query.split()  # split multi-word search
+        search_filter = Q()
+        for word in words:
+            search_filter |= (
+                Q(first_name__icontains=word) |
+                Q(last_name__icontains=word) |
+                Q(email__icontains=word) |
+                Q(phone_number__icontains=word)
+            )
+        users = users.filter(search_filter)
+
+    # Balance filter
+    balance_filter = request.GET.get('balance')
+    if balance_filter == 'has_balance':
+        users = users.filter(retainer_balance__gt=0)
+    elif balance_filter == 'no_balance':
+        users = users.filter(retainer_balance=0)
+
+    # Sorting
+    sort = request.GET.get('sort', 'asc')
+    if sort == 'asc':
+        users = users.order_by('first_name')
+    elif sort == 'desc':
+        users = users.order_by('-first_name')
+
+    # Pagination
+    paginator = Paginator(users, 10)  # 10 users per page
+    page_number = request.GET.get('page', 1)  # default to first page
+    page_obj = paginator.get_page(page_number)
+
+    return render(request, 'admin/clients.html', {
+        'page_obj': page_obj,
+        'search_query': search_query,
+        'balance_filter': balance_filter,
+        'sort': sort,
+    })
+
+# @login_required
 def admin_editor(request):
     """
     Admin editor view for editing WebsiteContent.
@@ -270,8 +319,39 @@ def admin_appointment_update_status(request, pk):
 # Client Views
 #@login_required
 def client_about(r): return render(r, "client/about.html")
-#@login_required
-def client_account(r): return render(r, "client/account.html")
+
+
+# Client account/profile view
+@login_required
+def client_account(r):
+    context = get_user_account_data(r)
+    return render(r, "client/account.html", context)
+
+# Get feilds for client's account/profile view
+def get_user_account_data(request):
+    user = request.user # get user table
+
+    # format the phone number for UI
+    raw_phone = getattr(user, "phone_number", "")
+    #removes characters in phone numer that aren't digits
+    digits = ""
+    for ch in str(raw_phone):
+        if ch.isdigit():
+            digits += ch
+
+    if len(digits) == 10:
+        phone = f"({digits[:3]}) {digits[3:6]}-{digits[6:]}"
+    else:
+        phone = str(raw_phone)  # fallback
+
+    return {
+        # will be "" if not present
+        "email": user.email or "",
+        "first_name": user.first_name or "",
+        "last_name": user.last_name or "",
+        "phone": phone or ""
+    }
+
 #@login_required
 def client_contact(r): return render(r, "client/contact.html")
 #@login_required
@@ -280,10 +360,8 @@ def client_contact(r): return render(r, "client/contact.html")
 def client_practice_areas(r):
     content = WebsiteContent.objects.latest('created_at')
     return render(r, "client/practice_areas.html", {"content": content})
-#@login_required
-def client_schedule(r): return render(r, "client/schedule.html")
 
-#@login_required
+@login_required
 def client_invoices(r): 
     user = r.user
 

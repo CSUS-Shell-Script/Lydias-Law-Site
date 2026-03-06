@@ -1,15 +1,283 @@
 {% extends 'client/base_client.html' %}
 {% block title %}Account{% endblock %}
 
+{% block extra_css %}
+<style>
+/* ------ Account HEADER BANNER ----- */
+.account-header-card {
+  background-color: #e8f2f0 !important;
+  width: 100%;
+}
+
+.account-header {
+  font-family: serif;
+  text-align: center;
+  padding: 2rem 3rem;
+  font-size: 2.5rem;
+  font-weight: 400;
+  color: black;
+}
+
+.account-wrapper {
+  background-color: #B1C5C1;
+  padding: 40px;
+  padding-bottom: 60px;
+  border-radius: 20px;
+  width: 60%;
+  margin: 60px auto;
+  color: white;
+  font-family: serif;
+  max-width: 900px;
+}
+
+.account-field {
+  background-color: #e8f2f0;
+  border-radius: 15px;
+  padding: 20px;
+  margin-bottom: 20px;
+  display: grid;
+  grid-template-columns: 150px 1fr auto;
+  align-items: center;
+  gap: 15px;
+}
+
+.field-text {
+  color: black;
+  font-size: 20px; 
+  padding-top: 5px
+}
+
+.btn {
+  background-color: #24665f;
+  color: white;
+  border: none;
+  padding: 8px 15px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.btn:hover {
+  background: white;
+  color: #2d7a73;
+  border-color: black;
+}
+
+.btn-container {
+  display: flex;
+  justify-content: space-between;
+}
+
+a.btn {
+  color: white !important;
+  text-decoration: none;
+}
+
+a.btn:hover {
+  color: #2d7a73 !important;
+}
+
+.cancel-btn {
+  background: #ccc;
+  border: none;
+  padding: 8px 18px;
+  border-radius: 10px;
+}
+
+.cancel-btn:hover{
+  background: #9d9c9c;
+}
+
+.modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  justify-content: center;
+  align-items: center;
+}
+
+.modal-content {
+  background: white;
+  padding: 30px;
+  border-radius: 20px;
+  width: 400px;
+  font-family: serif;
+}
+
+.modal-input {
+  width: 100%;
+  padding: 10px;
+  margin-top: 5px;
+  margin-bottom: 10px;
+  border-radius: 10px;
+  border: 1px solid #ccc;
+  display: flex;
+}
+
+/* For phone/small screen */
+@media (max-width: 900px) {
+  .account-wrapper {
+    width: 92%;
+    margin: 20px auto;
+    padding: 18px;
+  }
+
+  .account-header {
+    padding: 1.25rem 1rem;
+    font-size: 1.75rem;
+  }
+
+  .account-field {
+    grid-template-columns: 1fr; /* stack */
+    gap: 10px;
+    padding: 14px;
+  }
+
+  .field-text {
+    font-size: 16px;
+    word-break: break-word; /* helps long emails */
+  }
+
+  .btn-container {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .btn, .cancel-btn {
+    width: 100%;
+  }
+}
+</style>
+{% endblock %}
+
+
 {% block content %}
-<div class="row">
-  <div class="col-12">
-    <h1 class="h3 mb-4">Account</h1>
-    <div class="card">
-      <div class="card-body">
-        <p class="text-muted">Account coming soon...</p>
-      </div>
-    </div>
+
+<!-- Page Header -->
+<div class="account-header-card">
+  <div class="account-header">
+    Account
   </div>
 </div>
+
+<div class = "account-wrapper">
+  <!-- Name -->
+  <div class="account-field">
+    <div class="field-text">Name:</div>
+    <div class="field-text">{{ request.user.get_full_name }}</div>
+    <button class="btn" onclick="openModal('name', '{{ first_name }}', '{{ last_name }}')">Edit</button>
+  </div>
+
+  <!-- Email -->
+  <div class="account-field">
+    <div class="field-text">Email:</div>
+    <div class="field-text">{{ email }}</div>
+    <button class="btn" onclick="openModal('email', '{{ email|escapejs }}')">Edit</button>
+  </div>
+
+  <!-- Phone -->
+  <div class="account-field">
+    <div class="field-text">Phone Number:</div>
+    <div class="field-text">{{ phone }}</div>
+    <button class="btn" onclick="openModal('phone', '{{ phone|escapejs }}')">Edit</button>
+  </div>
+
+  <!-- Bottom buttons -->
+  <div class="btn-container">
+    <button class="btn">Change Password</button>
+    <a class="btn" href="{% url 'client_invoices' %}">Transaction History</a>
+  </div>
+
+</div>
+
+
+<!-- MODAL -->
+<div id="editModal" class="modal">
+    <div class="modal-content">
+        <h3 id="modalTitle">Edit</h3>
+
+        <form method="POST" id="editForm">
+            {% csrf_token %}
+
+            <input type="hidden" name="field" id="fieldInput">
+            
+            <!-- Email/Phone input (only 1 input line) -->
+            <input type="text" name="new_value" id="singleInput" class="modal-input">
+
+            <!-- Name inputs (2 inputs for first/last name) -->
+            <div id="nameInputs">
+              <label class=field-text> First Name:</label>
+              <input type="text" name="first_name" id="firstNameInput" class="modal-input" placeholder="First name">
+
+              <label class=field-text > Last Name:</label>
+              <input type="text" name="last_name" id="lastNameInput" class="modal-input" placeholder="Last name">
+            </div>
+
+            <div class="btn-container">
+                <button type="submit" class="btn">Save</button>
+                <button type="button" class="cancel-btn" onclick="closeModal()">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+
+<script>
+
+const modal = document.getElementById("editModal");
+const modalContent = modal.querySelector(".modal-content");
+
+function openModal(field, value1="", value2="") {
+  const modal = document.getElementById("editModal");
+  const singleInput = document.getElementById("singleInput");
+  const nameInputs = document.getElementById("nameInputs");
+  const firstNameInput = document.getElementById("firstNameInput");
+  const lastNameInput = document.getElementById("lastNameInput");
+  const labels = {
+    name: "Name",
+    email: "Email",
+    phone: "Phone Number"
+  };
+
+  modal.style.display = "flex";
+  document.getElementById("fieldInput").value = field;
+
+  if (field === "name") { // Show name inputs
+      singleInput.style.display = "none"; // block single input
+      nameInputs.style.display = "block"; //  show 2 inputs for name
+
+      firstNameInput.value = value1 || "";
+      lastNameInput.value = value2 || "";
+
+      document.getElementById("modalTitle").innerText = "Edit " + (labels[field] || field);
+
+  } else { // Single input (email, phone fields)
+      singleInput.style.display = "block"; // show single input
+      nameInputs.style.display = "none"; // block 2 name inputs
+
+      singleInput.value = value1 || "";
+      singleInput.focus();
+
+      document.getElementById("modalTitle").innerText = "Edit " + (labels[field] || field);
+  }
+}
+
+function closeModal() {
+  modal.style.display = "none";
+  document.getElementById("singleInput").value = "";
+  document.getElementById("firstNameInput").value = "";
+  document.getElementById("lastNameInput").value = "";
+}
+
+// Click outside to close model
+modal.addEventListener("click", (e) => {
+  if (e.target === modal) closeModal();
+});
+
+// Escape key to close model
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && modal.style.display === "flex") closeModal();
+});
+</script>
+
 {% endblock %}
