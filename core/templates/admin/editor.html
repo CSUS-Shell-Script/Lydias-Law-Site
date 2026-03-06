@@ -426,7 +426,6 @@
             </div>
 
         </div>
-
         <!-- Save Button -->
         <button type="submit" class="btn-save">
             Save All Changes
@@ -487,6 +486,37 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
     });
+
+    // --- Unsaved changes warning ---
+    const form = document.querySelector("#editor-form");
+    let isDirty = false;
+
+    if (form) {
+
+        // Normal inputs
+        form.querySelectorAll("input, select, textarea").forEach(el => {
+            el.addEventListener("input", () => isDirty = true);
+            el.addEventListener("change", () => isDirty = true);
+        });
+
+        // CKEditor 5 support
+        document.querySelectorAll('.ck-editor__editable').forEach(editor => {
+            editor.addEventListener('input', () => {
+                isDirty = true;
+            });
+        });
+
+        form.addEventListener("submit", () => {
+            isDirty = false;
+        });
+
+        window.addEventListener("beforeunload", function (e) {
+            if (isDirty) {
+                e.preventDefault();
+                e.returnValue = "";
+            }
+        });
+    }
 });
 </script>
 {% endblock %}

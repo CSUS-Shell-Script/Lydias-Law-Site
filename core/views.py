@@ -17,8 +17,12 @@ from sitecontent.models import WebsiteContent
 from django.conf import settings
 from finances.models import Invoice
 from appointments.models import Appointments, Invitee
-from users.views import is_admin_user
 from django.utils import timezone
+from django.core.exceptions import PermissionDenied
+from core.decorators import superuser_required
+from users.models import User
+from django.db.models import Q
+import re
 
 
 ''' Are these needed anymore if site content is covering them?
@@ -70,12 +74,58 @@ def login(r):
     return render(r, "users/login.html", {"role": role})
 
 # admin views (login temporarily disabled for testing)
-# @login_required
+# @superuser_required
 #def admin_dashboard(r): return render(r, "admin/dashboard.html")
-# @login_required
+# @superuser_required
 def admin_schedule(r): return render(r, "admin/schedule.html")
-# @login_required
+# @superuser_required
 def admin_clients(r): return render(r, "admin/clients.html")
+# @superuser_required
+
+@login_required
+def admin_clients(request):
+    users = User.objects.filter(role__in=[User.Role.CLIENT])
+
+    # Search
+    search_query = request.GET.get('search', '').strip()
+    if search_query:
+        words = search_query.split()  # split multi-word search
+        search_filter = Q()
+        for word in words:
+            search_filter |= (
+                Q(first_name__icontains=word) |
+                Q(last_name__icontains=word) |
+                Q(email__icontains=word) |
+                Q(phone_number__icontains=word)
+            )
+        users = users.filter(search_filter)
+
+    # Balance filter
+    balance_filter = request.GET.get('balance')
+    if balance_filter == 'has_balance':
+        users = users.filter(retainer_balance__gt=0)
+    elif balance_filter == 'no_balance':
+        users = users.filter(retainer_balance=0)
+
+    # Sorting
+    sort = request.GET.get('sort', 'asc')
+    if sort == 'asc':
+        users = users.order_by('first_name')
+    elif sort == 'desc':
+        users = users.order_by('-first_name')
+
+    # Pagination
+    paginator = Paginator(users, 10)  # 10 users per page
+    page_number = request.GET.get('page', 1)  # default to first page
+    page_obj = paginator.get_page(page_number)
+
+    return render(request, 'admin/clients.html', {
+        'page_obj': page_obj,
+        'search_query': search_query,
+        'balance_filter': balance_filter,
+        'sort': sort,
+    })
+
 # @login_required
 def admin_editor(request):
     """
@@ -108,16 +158,15 @@ def admin_editor(request):
         'form': form,
         'content': content,
     })
-# @login_required
+# @superuser_required
 def admin_history(r): return render(r, "admin/history.html")
-# @login_required
+# @superuser_required
 def admin_appointment_confirmation(r): return render(r, "admin/appointment_confirmation.html")
-# @login_required
+# @superuser_required
 def admin_create_invoices(r): return render(r, "admin/create_invoice.html")
 
-@login_required
+@superuser_required
 def admin_appointments(request):
-    is_admin_user(request.user)
 
     qs = Appointments.objects.select_related('user_id').prefetch_related('invitees').all()
 
@@ -146,9 +195,8 @@ def admin_appointments(request):
         'date_to': date_to,
     })
 
-@login_required
+@superuser_required
 def admin_appointment_detail(request, pk):
-    is_admin_user(request.user)
 
     appointment = get_object_or_404(
         Appointments.objects.select_related('user_id').prefetch_related('invitees'),
@@ -162,9 +210,8 @@ def admin_appointment_detail(request, pk):
 
 
 @require_POST
-@login_required
+@superuser_required
 def admin_appointment_cancel(request, pk):
-    is_admin_user(request.user)
 
     appointment = get_object_or_404(
         Appointments.objects.prefetch_related("invitees"),
@@ -220,9 +267,8 @@ def admin_appointment_cancel(request, pk):
 
 
 @require_POST
-@login_required
+@superuser_required
 def admin_appointment_update_status(request, pk):
-    is_admin_user(request.user)
 
     appointment = get_object_or_404(Appointments.objects.prefetch_related("invitees"), pk=pk)
     next_url = request.POST.get("next") or reverse("admin_appointment_detail", args=[pk])
@@ -332,7 +378,7 @@ def client_practice_areas(r):
     content = WebsiteContent.objects.latest('created_at')
     return render(r, "client/practice_areas.html", {"content": content})
 
-#@login_required
+@login_required
 def client_invoices(r): 
     user = r.user
 

@@ -64,3 +64,38 @@ class LoginErrorMessagingTests(TestCase):
         )
         self.assertEqual(resp.status_code, 401)
         self.assertIn("Invalid email.", self._messages(resp))
+
+
+class AdminPermissionTests(TestCase):
+    def setUp(self):
+        self.url = "/administrator/dashboard/"
+
+        self.normal_user = User.objects.create_user(
+            email="client@unitTest.com",
+            password="Password1!"
+        )
+        self.superuser = User.objects.create_superuser(
+            email="admin@unitTest.com",
+            password="Pass12345!"
+        )
+
+    def test_guest_user_gets_403(self):
+        resp = self.client.get(self.url)
+        self.assertEqual(resp.status_code, 403)
+
+    def test_client_user_gets_403(self):
+        self.client.login(email="client@unitTest.com", password="Password1!")
+        resp = self.client.get(self.url)
+        self.assertEqual(resp.status_code, 403)
+
+    def test_superuser_gets_200(self):
+        self.client.login(email="admin@unitTest.com", password="Pass12345!")
+        resp = self.client.get(self.url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertTemplateUsed(resp, "admin/dashboard.html")
+
+    def test_403_uses_custom_template(self):
+        self.client.login(email="client@unitTest.com", password="Password1!")
+        resp = self.client.get(self.url)
+        self.assertEqual(resp.status_code, 403)
+        self.assertTemplateUsed(resp, "403.html")
