@@ -8,7 +8,7 @@ from django.http import JsonResponse
 from django.shortcuts import render, redirect
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth.decorators import login_required
-from users.views import is_admin_user
+from core.decorators import superuser_required
 
 import stripe
 from users.models import User
@@ -258,11 +258,8 @@ def stripe_get_invoice(stripe_invoice_id: str):
 def stripe_list_client_invoices(user, limit=50):
     return stripe.Invoice.list(customer=user.provider_customer_id, limit=limit)
 
-@login_required
-def admin_transactions(request):
-    # Ensures only visible to admins (PermissionDenied if not)
-    is_admin_user(request.user)
-
+@superuser_required # Ensures only visible to admins (PermissionDenied if not)
+def admin_transactions(request):    
     # Fetch from local DB so we can link to Django users
     # Use select_related to get the user email in one database hit
     invoices = Invoice.objects.select_related("user").all().order_by("-created_at")
@@ -275,14 +272,12 @@ def admin_transactions(request):
         inv.display_status = str(inv.status).upper()    
     return render(request, "admin/transactions.html", {"invoices": invoices })
 
-@login_required
+@superuser_required
 def admin_stripe_invoice_detail(request, stripe_invoice_id):
     """
     Admin-only: Retrieve a Stripe invoice by stripe invoice ID
     Sends invoice info to frontend as JSON
     """
-    is_admin_user(request.user)
-
     try: 
         inv = stripe_get_invoice(stripe_invoice_id)
     except stripe.error.StripeError as e:
@@ -300,15 +295,13 @@ def admin_stripe_invoice_detail(request, stripe_invoice_id):
         "customer": inv.get("customer"),
     })
 
-@login_required
+@superuser_required
 def admin_stripe_invoices_for_user(request, user_id):
     """
     Admin-only: Retrieve all stripe invoices for a local user id
     Uses user's stripe customer id -> provider_customer_id
     Sends invoice list to frontend as JSON
     """
-    is_admin_user(request.user)
-
     try: 
         user = User.objects.get(id=user_id)
     except User.DoesNotExist:
@@ -342,14 +335,12 @@ def admin_stripe_invoices_for_user(request, user_id):
         "invoices": invoices,
     })
 
-@login_required
+@superuser_required
 def void_invoice(request, stripe_invoice_id):
     """
     Admin-only: void an open Stripe invoice and update the local DB.
     Only PENDING invoices can be voided; PAID invoices cannot.
     """
-    is_admin_user(request.user)
-
     if request.method != "POST":
         return JsonResponse({"error": "Method not allowed"}, status=405)
 
@@ -378,6 +369,7 @@ def void_invoice(request, stripe_invoice_id):
         request.user.email,
     )
     return JsonResponse({"status": "voided"})
+
 
 def create_checkout_session(request, invoice_id):
     try:
