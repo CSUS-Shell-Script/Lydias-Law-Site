@@ -6,12 +6,13 @@ from django.views.decorators.csrf import csrf_exempt
 from django.urls import reverse
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from core.decorators import superuser_required
 
 from .models import Appointments, Invitee
 from users.models import User
-from users.views import is_admin_user
 import json
 import secrets
+
 
 
 @csrf_exempt
@@ -172,9 +173,8 @@ def calendly_webhook(request):
     return JsonResponse({"status": "ok"})
 
 
-@login_required
+@superuser_required
 def calendly_oauth_start(request):
-    is_admin_user(request.user)
     redirect_uri = request.build_absolute_uri(reverse("calendly_oauth_callback"))
     state = secrets.token_urlsafe(24)
     request.session["calendly_oauth_state"] = state
@@ -184,9 +184,8 @@ def calendly_oauth_start(request):
     return redirect(build_oauth_authorize_url(redirect_uri=redirect_uri, state=state))
 
 
-@login_required
+@superuser_required
 def calendly_oauth_callback(request):
-    is_admin_user(request.user)
 
     expected_state = request.session.get("calendly_oauth_state")
     state = request.GET.get("state")

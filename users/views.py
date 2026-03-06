@@ -21,7 +21,7 @@ from django.core.exceptions import PermissionDenied
 from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
 from sitecontent.views import get_latest_website_content
-
+from core.decorators import superuser_required
 
 # Directs to login page
 def login(r): 
@@ -231,14 +231,8 @@ def client_dashboard(request):
         "content": content,
     })
 
-# Helper: only allow staff/admin users
-def is_admin_user(user):
-    if not user.is_authenticated or not user.is_staff:
-        raise PermissionDenied
-    return user.is_authenticated and user.is_staff
-
 # Admin dashboard view
-@login_required
+@superuser_required
 def admin_dashboard(r): 
     content = get_latest_website_content()
     upcoming_appts = admin_get_next_three_appointments(r.user)
