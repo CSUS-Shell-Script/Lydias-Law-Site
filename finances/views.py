@@ -3,6 +3,7 @@ import json
 import logging
 
 from django.conf import settings
+from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
 from django.http import JsonResponse
 from django.shortcuts import render, redirect
@@ -281,18 +282,34 @@ def stripe_list_client_invoices(user, limit=50):
     return stripe.Invoice.list(customer=user.provider_customer_id, limit=limit)
 
 @superuser_required # Ensures only visible to admins (PermissionDenied if not)
-def admin_transactions(request):    
+def admin_transactions(request):
     # Fetch from local DB so we can link to Django users
     # Use select_related to get the user email in one database hit
     invoices = Invoice.objects.select_related("user").all().order_by("-created_at")
 
-   # helper attributes so template logic works
-    for inv in invoices:
+    # per_page: only 20 (default) or 40 are accepted; anything else falls back to 20
+    try:
+        per_page = int(request.GET.get("per_page", 20))
+    except (TypeError, ValueError):
+        per_page = 20
+    if per_page not in (20, 40):
+        per_page = 20
+
+    paginator = Paginator(invoices, per_page)
+    page_number = request.GET.get("page", 1)
+    page_obj = paginator.get_page(page_number)
+
+    # Attach display helpers to the current page's items only
+    for inv in page_obj:
         # Convert cents (stripe) to dollars for UI
         inv.amount_dollars = inv.amount / 100.0 if inv.amount else 0.0
-        # Ensure status is uppercase for templates checks
-        inv.display_status = str(inv.status).upper()    
-    return render(request, "admin/transactions.html", {"invoices": invoices })
+        # Ensure status is uppercase for template checks
+        inv.display_status = str(inv.status).upper()
+
+    return render(request, "admin/transactions.html", {
+        "page_obj": page_obj,
+        "per_page": per_page,
+    })
 
 @superuser_required
 def admin_stripe_invoice_detail(request, stripe_invoice_id):
