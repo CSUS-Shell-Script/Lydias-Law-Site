@@ -3,8 +3,10 @@ from django.urls import reverse
 from django.contrib.auth import get_user_model
 from django.contrib.sites.models import Site
 from django.contrib.messages import get_messages
-from allauth.socialaccount.models import SocialAppclass AdminPermissionTests(TestCase):
+from django.contrib.auth import authenticate
+from allauth.socialaccount.models import SocialApp
 from allauth.account.models import EmailAddress
+from django.conf import settings
 
 User = get_user_model()
 
@@ -321,7 +323,7 @@ class SignupTests(TestCase):
         print("Assertion 4 PASS: email == 'john@example.com'")
 
 
-User = get_user_model()
+
 
 # Create your tests here.
 
