@@ -75,11 +75,11 @@
 </div>
 
 <div class="invoice-container">
-    <form method="POST" class="invoice-form">
+    <form method="POST" action="{% url 'payment' %}" class="invoice-form">
         {% csrf_token %}
         
         <label for="invoice_id">Please enter your Invoice ID</label>
-        <input type="text" name="invoice_id" id="invoice_id" placeholder="Enter Invoice ID">
+        <input type="text" name="invoice_id" id="invoice_id" placeholder="Enter Invoice ID" required>
 
         <button type="submit">Submit</button>
     </form>

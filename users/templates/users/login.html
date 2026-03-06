@@ -7,6 +7,7 @@
 
         <form method="post" action="{% url 'login' %}">
             {% csrf_token %}
+            <input type="hidden" name="role" value="{{ role }}">
             <div class="mb-3">
                 <label for="email" class="form-label mb-0" style="color: #BDBDBD">Email<span style="color: red;">*</span>
 </label>
@@ -27,18 +28,20 @@
                 <button class="btn w-100" style="background-color: #2d7a73; border-radius: 1.5rem; color: white !important;">Login</button>
             </div>
 
-            <a href="{% provider_login_url 'google' next='/client/dashboard/' %}">
-                <button type="button" class="btn w-100 mb-4 d-flex align-items-center justify-content-center gap-3" 
-                    style="background-color: white; color: rgba(0, 0, 0, 0.5); border-radius: 2rem;">
-                    <img src="https://www.svgrepo.com/show/475656/google-color.svg" alt="Google" width="20" height="20">
-                    <span>Login with Google</span>
-                </button>
-            </a>
+            {% if google_login_enabled %}
+                <a href="{% provider_login_url 'google' next='/client/dashboard/' %}">
+                    <button type="button" class="btn w-100 mb-4 d-flex align-items-center justify-content-center gap-3" 
+                        style="background-color: white; color: rgba(0, 0, 0, 0.5); border-radius: 2rem;">
+                        <img src="https://www.svgrepo.com/show/475656/google-color.svg" alt="Google" width="20" height="20">
+                        <span>Login with Google</span>
+                    </button>
+                </a>
+            {% endif %}
         </form>
 
         <div class="text-center small">
             <span style="color: #BDBDBD !important">Are you an Admin?</span>
-            <a href="{% url 'admin_dashboard' %}" class="text-decoration-none" style="color: #115A5C !important">Login</a>
+            <a href="{% url 'login' %}?role=admin" class="text-decoration-none" style="color: #115A5C !important">Login</a>
         </div>
         <div class="text-center small" style="color: #BDBDBD !important;">
             <span style="color: #BDBDBD !important">Don't have an account?</span>

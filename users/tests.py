@@ -1,14 +1,46 @@
+from django.contrib.messages import get_messages
 from django.test import TestCase, Client
 from django.urls import reverse
-from django.contrib.auth import get_user_model
 from django.contrib.sites.models import Site
-from django.contrib.messages import get_messages
-from django.contrib.auth import authenticate
 from allauth.socialaccount.models import SocialApp
 from allauth.account.models import EmailAddress
-from django.conf import settings
+from django.contrib.auth import get_user_model
+
+from users.models import User
 
 User = get_user_model()
+
+class LoginErrorMessagingTests(TestCase):
+    def setUp(self):
+        site = Site.objects.get_or_create(id=1, defaults={"name": "Test Site", "domain": "testserver"})[0]
+        social_app, _ = SocialApp.objects.get_or_create(
+            provider="google",
+            defaults={"name": "Google (test)", "client_id": "test-client-id"},
+        )
+        social_app.sites.add(site)
+        
+    def _messages(self, response):
+        return [m.message for m in get_messages(response.wsgi_request)]
+
+    def test_login_unknown_email_shows_user_does_not_exist_404(self):
+        url = reverse("login")
+        resp = self.client.post(url, data={"email": "missing@example.com", "password": "pw"}, follow=True)
+        self.assertEqual(resp.status_code, 404)
+        self.assertIn("User does not exist, please create an account to login.", self._messages(resp))
+
+    def test_login_wrong_password_shows_did_not_match_401(self):
+        User.objects.create_user(
+            email="client@example.com",
+            password="correctpw",
+            first_name="Client",
+            last_name="User",
+            is_staff=False,
+            is_active=True,
+        )
+        url = reverse("login")
+        resp = self.client.post(url, data={"email": "client@example.com", "password": "wrongpw"}, follow=True)
+        self.assertEqual(resp.status_code, 401)
+        self.assertIn("Your email and password did not match, please try again.", self._messages(resp))
 
 
 class LoginTests(TestCase):
@@ -327,9 +359,7 @@ class SignupTests(TestCase):
 
 # Create your tests here.
 
-# *** 403 Permission Denied Tests ***
 class AdminPermissionTests(TestCase):
-    # Setup different user types
     def setUp(self):
         self.url = "/administrator/dashboard/"
 
@@ -338,32 +368,26 @@ class AdminPermissionTests(TestCase):
             password="Password1!"
         )
         self.superuser = User.objects.create_superuser(
-            email="admin@unitTest.com", 
+            email="admin@unitTest.com",
             password="Pass12345!"
         )
-    # Test for guest user -> not logged in 
-    # Should get 403 page
+
     def test_guest_user_gets_403(self):
         resp = self.client.get(self.url)
         self.assertEqual(resp.status_code, 403)
-        
-    # Test for client user -> logged in
-    # Should get 403 page
+
     def test_client_user_gets_403(self):
         self.client.login(email="client@unitTest.com", password="Password1!")
         resp = self.client.get(self.url)
         self.assertEqual(resp.status_code, 403)
 
-    # Test for admin user -> logged in
-    # Should NOT get 403 page
     def test_superuser_gets_200(self):
         self.client.login(email="admin@unitTest.com", password="Pass12345!")
         resp = self.client.get(self.url)
         self.assertEqual(resp.status_code, 200)
         self.assertTemplateUsed(resp, "admin/dashboard.html")
 
-    # Tests if custom 403 template is rendered instead of Django default
-    def test_403_uses_custom_tempate(self):
+    def test_403_uses_custom_template(self):
         self.client.login(email="client@unitTest.com", password="Password1!")
         resp = self.client.get(self.url)
         self.assertEqual(resp.status_code, 403)

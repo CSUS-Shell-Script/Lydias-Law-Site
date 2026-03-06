@@ -42,11 +42,28 @@ def practice_areas(r):
 def about(r): return render(r, "about.html")
 def services(r): return render(r, "services.html")
 def contact(r): return render(r, "contact.html", {"GOOGLE_MAPS_API_KEY": settings.GOOGLE_MAPS_API_KEY})
-def payment(r): 
-    if r.method == "POST":
-        invoice_id = r.POST.get("invoice_id")
-        return redirect("create_checkout_session", invoice_id=invoice_id)
-    return render(r, "payment.html")
+
+def payment(request):
+    """
+    Guest invoice payment entry point.
+    Validates the submitted Invoice ID before redirecting into the checkout flow.
+    """
+    if request.method != "POST":
+        return render(request, "payment.html")
+
+    raw_invoice_id = (request.POST.get("invoice_id") or "").strip()
+    if not raw_invoice_id or not raw_invoice_id.isdigit():
+        messages.error(request, "Incorrect Invoice ID.")
+        return render(request, "payment.html", status=400)
+
+    invoice_id = int(raw_invoice_id)
+    invoice = Invoice.objects.filter(id=invoice_id).first()
+    if not invoice:
+        messages.error(request, "Incorrect Invoice ID.")
+        return render(request, "payment.html", status=404)
+
+    return redirect("create_checkout_session", invoice_id=invoice_id)
+
 def schedule(r): return render(r, "schedule.html")
 def privacy(r): return render(r, "privacy.html")
 def appointment_confirmation(r): return render (r, "appointment_confirmation.html")
