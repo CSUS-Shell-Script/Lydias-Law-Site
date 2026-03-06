@@ -19,6 +19,24 @@
   <body>
     {% include "partials/client_navbar.html" %}
 
+    {% if messages %}
+    <div class="container-fluid px-4 pt-3">
+      {% for message in messages %}
+      {% if message.tags == "error" %}
+      <div class="alert alert-danger alert-dismissible fade show mb-2" role="alert">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+      </div>
+      {% else %}
+      <div class="alert alert-{{ message.tags }} alert-dismissible fade show mb-2" role="alert">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+      </div>
+      {% endif %}
+      {% endfor %}
+    </div>
+    {% endif %}
+
     <main class="client-content">
       <div class="container-fluid px-0">
         {% if messages %}
