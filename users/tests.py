@@ -47,3 +47,15 @@ class AdminPermissionTests(TestCase):
         resp = self.client.get(self.url)
         self.assertEqual(resp.status_code, 403)
         self.assertTemplateUsed(resp, "403.html")
+
+# *** 404 Page Not Found Tests ***
+class PageNotFoundTests(TestCase):
+    # Test that non existant page returns 404
+    def test_404_page_returns_404(self):
+        resp = self.client.get("/fake-page-test/")
+        self.assertEqual(resp.status_code, 404)
+
+    # Tests if the custom 404 template is rendered instead of Django default
+    def test_404_uses_custom_template(self):
+        resp = self.client.get("/fake-page-test/")
+        self.assertTemplateUsed(resp, "404.html")
