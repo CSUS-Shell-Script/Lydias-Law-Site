@@ -203,13 +203,18 @@ input, textarea {
 
 {% block content %}
 
+<!--
+    Error messages are currently being displayed at the top of the screen,
+    But with current implementation, it causes the header card to get shifted down when an error is closed.
+-->
+<div class="container-fluid px-4 pt-3" id="invoice-response"></div>
+
 <!-- Page Header -->
 <div class="invoice-header-card">
     <div class="invoice-header">
         Create Invoices
     </div>
 </div>
-
 
 <!-- Form container -->
 <div class="invoice-container">
@@ -264,7 +269,7 @@ input, textarea {
             <label>Unit Price</label>
             <div class="input-with-symbol">
                 <span class="currency-symbol">$</span>
-                <input type="number" step="1" name="unit_price[]" oninput="calculateTotal()" required>
+                <input type="number" step="0.01" min="0" name="unit_price[]" oninput="calculateTotal()" required>
             </div>
         </div>
         <div></div>
@@ -283,9 +288,6 @@ input, textarea {
 <button type="submit" class="submit-btn">Create Invoice</button>
 </form>
 </div>
-
-<div id="invoice-response"></div>
-
 
 <script>
 function formatCurrency(value) {
@@ -324,7 +326,7 @@ function addItem() {
             <label>Unit Price</label>
             <div class="input-with-symbol">
                 <span class="currency-symbol">$</span>
-                <input type="number" step="1" name="unit_price[]" oninput="calculateTotal()" required>
+                <input type="number" step="0.01" min="0" name="unit_price[]" oninput="calculateTotal()" required>
             </div>
         </div>
         
@@ -360,28 +362,47 @@ form.addEventListener("submit", async (event) => {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
 
+        const contentType = response.headers.get("content-type");
+        
+        // If response is HTML (unexpected), reload to display Django messages
+        if (contentType && contentType.includes("text/html")) {
+            location.reload();
+            return;
+        }
+
         const data = await response.json();
         const responseDiv = document.getElementById("invoice-response");
 
         if (data.success) {
-        // Opens new tab with stripe invoice
-        if (data.hosted_invoice_url) {
-        window.open(data.hosted_invoice_url, '_blank');
-        window.location.href = "{% url 'admin_invoice_confirmation' %}";
-        responseDiv.innerHTML = `<p style="color: green;">Invoice created successfully! A new tab has been opened with the Stripe invoice.</p>`;
-        form.reset();
-        document.getElementById("invoice-total").innerText = "$0.00";
-    } else {
-        responseDiv.innerHTML = `<p>Invoice created, but no hosted link returned.</p>`;
-    }
-
+            // Opens new tab with stripe invoice
+            if (data.hosted_invoice_url) {
+                window.open(data.hosted_invoice_url, '_blank');
+                window.location.href = "{% url 'admin_invoice_confirmation' %}";
+                responseDiv.innerHTML = `<p style="color: green;">Invoice created successfully! A new tab has been opened with the Stripe invoice.</p>`;
+                form.reset();
+                document.getElementById("invoice-total").innerText = "$0.00";
+            } else {
+                responseDiv.innerHTML = `<p>Invoice created, but no hosted link returned.</p>`;
+            }
         } else {
-        responseDiv.innerHTML = `<p>Error: ${data.error}</p>`;
+            // Display error in a Bootstrap-style alert
+            responseDiv.innerHTML = `
+                <div class="alert alert-danger alert-dismissible fade show mb-2" role="alert">
+                    ${data.error}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            `;
         }
 
     } catch (error) {
         console.error("Network error:", error);
-        responseDiv.innerHTML = `<p>Network error: ${error.message}</p>`;
+        const responseDiv = document.getElementById("invoice-response");
+        responseDiv.innerHTML = `
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                Network error: ${error.message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        `;
     }
 });
 </script>

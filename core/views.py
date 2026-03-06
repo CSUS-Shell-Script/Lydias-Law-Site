@@ -340,9 +340,41 @@ def client_about(r): return render(r, "client/about.html")
 
 # Client account/profile view
 @login_required
-def client_account(r):
-    context = get_user_account_data(r)
-    return render(r, "client/account.html", context)
+def client_account(request):
+    if request.method == "POST":
+        field = request.POST.get("field", "")
+        user = request.user
+
+        if field == "name":
+            first_name = (request.POST.get("first_name") or "").strip()
+            last_name = (request.POST.get("last_name") or "").strip()
+            if not first_name or not last_name:
+                messages.error(request, "First name and last name cannot be blank.")
+            else:
+                user.first_name = first_name
+                user.last_name = last_name
+                user.save(update_fields=["first_name", "last_name"])
+                messages.success(request, "Name updated successfully.")
+
+        elif field == "phone":
+            import re
+            raw_phone = (request.POST.get("new_value") or "").strip()
+            if not raw_phone:
+                messages.error(request, "Phone number cannot be blank.")
+            elif not re.match(r"^\d{7,15}$", raw_phone):
+                messages.error(request, "Phone number must be 7-15 digits (numbers only).")
+            else:
+                user.phone_number = raw_phone
+                user.save(update_fields=["phone_number"])
+                messages.success(request, "Phone number updated successfully.")
+
+        else:
+            messages.error(request, "That field cannot be updated here.")
+
+        return redirect("client_account")
+
+    context = get_user_account_data(request)
+    return render(request, "client/account.html", context)
 
 # Get feilds for client's account/profile view
 def get_user_account_data(request):
