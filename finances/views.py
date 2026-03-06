@@ -24,6 +24,9 @@ stripe.api_key = settings.STRIPE_SECRET_KEY
 # Standard Django logger for recording webhook activity.
 logger = logging.getLogger(__name__)
 
+# Exclusive upper bound for unit price (valid range: 0 < unit_price < UNIT_PRICE_MAX).
+UNIT_PRICE_MAX = 99_999
+
 
 def get_or_create_stripe_customer_id(user):
     # locks the user's row to prevent duplicate stripe customers for one user
@@ -167,12 +170,13 @@ def create_invoice_items(stripe_customer_id, descriptions, quantities, unit_pric
     # is calculated during the creation of the stripe invoice.
     for desc, quantity, price in zip(descriptions, quantities, unit_prices):
         try:
-            price_cents = int(float(price) * 100)
+            price_float = float(price)
+            price_cents = int(price_float * 100)
             quantity = int(quantity)
-            
-            # Validate that price and quantity are positive
-            if price_cents <= 0:
-                return JsonResponse({"success": False, "error": "Unit price must be greater than zero."})
+
+            # Validate that price is within allowed bounds (0 < unit_price < UNIT_PRICE_MAX).
+            if price_float <= 0 or price_float >= UNIT_PRICE_MAX:
+                return JsonResponse({"success": False, "error": "Unit price must be greater than $0 and less than $99,999."})
             if quantity <= 0:
                 return JsonResponse({"success": False, "error": "Quantity must be greater than zero."})
 
@@ -202,6 +206,10 @@ def create_invoice(request):
         try:
             # Get user.
             user = User.objects.get(email=user_email)
+
+            # Prevent creating a new invoice if the client already has a pending one.
+            if Invoice.objects.filter(user=user, status=Invoice.Status.PENDING).exists():
+                return JsonResponse({"success": False, "error": "This client already has a pending invoice. Please have the client pay it or void the pending invoice before creating a new one."})
 
             # Check if user has existing Stripe ID.
             stripe_customer_id = get_or_create_stripe_customer_id(user)

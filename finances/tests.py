@@ -6,6 +6,8 @@ from django.contrib.messages import get_messages
 from django.contrib.auth import get_user_model
 from django.contrib.sites.models import Site
 from django.test import TestCase, Client
+from django.urls import reverse
+from unittest.mock import patch, MagicMock
 
 from allauth.socialaccount.models import SocialApp
 
@@ -444,6 +446,178 @@ class InvoiceCreationTests(TestCase):
         # Check exact error message
         self.assertEqual(
             actual_error,
-            "Unit price must be greater than zero."
+            "Unit price must be greater than $0 and less than $99,999."
         )
         print("Assertion 3 PASS: error message matches expected")
+
+
+def _make_fake_stripe_invoice():
+    """Return a minimal MagicMock that satisfies the create_invoice view."""
+    fake = MagicMock()
+    fake.id = "inv_test"
+    fake.amount_due = 10000  # $100 in cents
+    fake.hosted_invoice_url = "https://stripe.com/inv_test"
+    return fake
+
+
+class _InvoiceTestBase(TestCase):
+    """Shared setUp for invoice-related test classes."""
+
+    def setUp(self):
+        self.client = Client()
+        self.create_invoice_url = reverse("admin_create_invoices")
+
+        site = Site.objects.get_or_create(
+            id=1, defaults={"name": "Test Site", "domain": "testserver"}
+        )[0]
+        social_app, _ = SocialApp.objects.get_or_create(
+            provider="google",
+            defaults={"name": "Google (test)", "client_id": "test-client-id"},
+        )
+        social_app.sites.add(site)
+
+        self.admin_user = User.objects.create_user(
+            email="admin@example.com",
+            password="adminpass123",
+            first_name="Admin",
+            last_name="User",
+            is_active=True,
+            is_staff=True,
+        )
+        AdminProfile.objects.create(user=self.admin_user, hourly_rate=150.00)
+
+        self.client_user = User.objects.create_user(
+            email="client@example.com",
+            password="clientpass123",
+            first_name="Test",
+            last_name="Client",
+            is_active=True,
+        )
+
+        self.client.login(email="admin@example.com", password="adminpass123")
+
+    def _post_invoice(self, unit_price, email=None):
+        return self.client.post(
+            self.create_invoice_url,
+            {
+                "email": email or "client@example.com",
+                "issue_date": "2026-03-01",
+                "due_date": "2026-04-01",
+                "customer_notes": "",
+                "description[]": ["Service"],
+                "quantity[]": ["1"],
+                "unit_price[]": [str(unit_price)],
+            },
+        )
+
+
+class UnitPriceBoundsTests(_InvoiceTestBase):
+    """LLW-263: Unit price must be > 0 and < 99,999."""
+
+    PRICE_ERROR = "Unit price must be greater than $0 and less than $99,999."
+
+    # --- invalid cases (no Stripe calls should be made) ---
+
+    def test_unit_price_zero_is_invalid(self):
+        response = self._post_invoice(0)
+        data = json.loads(response.content)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(data["success"])
+        self.assertEqual(data["error"], self.PRICE_ERROR)
+        self.assertEqual(Invoice.objects.count(), 0)
+
+    def test_unit_price_negative_is_invalid(self):
+        response = self._post_invoice(-50)
+        data = json.loads(response.content)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(data["success"])
+        self.assertEqual(data["error"], self.PRICE_ERROR)
+        self.assertEqual(Invoice.objects.count(), 0)
+
+    def test_unit_price_99999_is_invalid(self):
+        response = self._post_invoice(99999)
+        data = json.loads(response.content)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(data["success"])
+        self.assertEqual(data["error"], self.PRICE_ERROR)
+        self.assertEqual(Invoice.objects.count(), 0)
+
+    # --- valid cases (Stripe calls mocked) ---
+
+    @patch("finances.views.get_or_create_stripe_customer_id", return_value="cus_test")
+    @patch("finances.views.stripe")
+    def test_unit_price_99998_99_is_valid(self, mock_stripe, _mock_stripe_id):
+        fake_inv = _make_fake_stripe_invoice()
+        mock_stripe.Invoice.create.return_value = fake_inv
+        mock_stripe.Invoice.finalize_invoice.return_value = fake_inv
+
+        response = self._post_invoice(99998.99)
+        data = json.loads(response.content)
+        self.assertTrue(data["success"])
+        self.assertEqual(Invoice.objects.count(), 1)
+
+    @patch("finances.views.get_or_create_stripe_customer_id", return_value="cus_test")
+    @patch("finances.views.stripe")
+    def test_unit_price_1_is_valid(self, mock_stripe, _mock_stripe_id):
+        fake_inv = _make_fake_stripe_invoice()
+        mock_stripe.Invoice.create.return_value = fake_inv
+        mock_stripe.Invoice.finalize_invoice.return_value = fake_inv
+
+        response = self._post_invoice(1)
+        data = json.loads(response.content)
+        self.assertTrue(data["success"])
+        self.assertEqual(Invoice.objects.count(), 1)
+
+
+class PendingInvoiceValidationTests(_InvoiceTestBase):
+    """LLW-264: Cannot create invoice when client already has a pending one."""
+
+    PENDING_ERROR = (
+        "This client already has a pending invoice. "
+        "Please have the client pay it or void the pending invoice before creating a new one."
+    )
+
+    def _create_invoice(self, status):
+        return Invoice.objects.create(
+            user=self.client_user,
+            amount=10000,
+            status=status,
+        )
+
+    def test_pending_invoice_blocks_creation(self):
+        self._create_invoice(Invoice.Status.PENDING)
+
+        response = self._post_invoice(100)
+        data = json.loads(response.content)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(data["success"])
+        self.assertEqual(data["error"], self.PENDING_ERROR)
+        # Count must stay at 1 (the pre-existing pending invoice, no new one added).
+        self.assertEqual(Invoice.objects.count(), 1)
+
+    @patch("finances.views.get_or_create_stripe_customer_id", return_value="cus_test")
+    @patch("finances.views.stripe")
+    def test_voided_invoice_allows_creation(self, mock_stripe, _mock_stripe_id):
+        self._create_invoice(Invoice.Status.VOIDED)
+        fake_inv = _make_fake_stripe_invoice()
+        mock_stripe.Invoice.create.return_value = fake_inv
+        mock_stripe.Invoice.finalize_invoice.return_value = fake_inv
+
+        response = self._post_invoice(100)
+        data = json.loads(response.content)
+        self.assertTrue(data["success"])
+        # One pre-existing voided + one newly created = 2.
+        self.assertEqual(Invoice.objects.count(), 2)
+
+    @patch("finances.views.get_or_create_stripe_customer_id", return_value="cus_test")
+    @patch("finances.views.stripe")
+    def test_paid_invoice_allows_creation(self, mock_stripe, _mock_stripe_id):
+        self._create_invoice(Invoice.Status.PAID)
+        fake_inv = _make_fake_stripe_invoice()
+        mock_stripe.Invoice.create.return_value = fake_inv
+        mock_stripe.Invoice.finalize_invoice.return_value = fake_inv
+
+        response = self._post_invoice(100)
+        data = json.loads(response.content)
+        self.assertTrue(data["success"])
+        self.assertEqual(Invoice.objects.count(), 2)
