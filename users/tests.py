@@ -4,6 +4,7 @@ from django.urls import reverse
 from django.contrib.sites.models import Site
 from allauth.socialaccount.models import SocialApp
 from allauth.account.models import EmailAddress
+from django.contrib.auth import get_user_model
 
 from users.models import User
 
