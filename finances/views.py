@@ -9,11 +9,15 @@ from django.http import JsonResponse
 from django.shortcuts import render, redirect
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth.decorators import login_required
+from django.contrib import messages
+#from users.views import is_admin_user
 from core.decorators import superuser_required
 
 import stripe
 from users.models import User
 from .models import Invoice, StripeWebhookEvent
+from django.contrib import messages
+from django.contrib.messages import get_messages
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
 
@@ -165,6 +169,12 @@ def create_invoice_items(stripe_customer_id, descriptions, quantities, unit_pric
         try:
             price_cents = int(float(price) * 100)
             quantity = int(quantity)
+            
+            # Validate that price and quantity are positive
+            if price_cents <= 0:
+                return JsonResponse({"success": False, "error": "Unit price must be greater than zero."})
+            if quantity <= 0:
+                return JsonResponse({"success": False, "error": "Quantity must be greater than zero."})
 
             stripe.InvoiceItem.create(
                 unit_amount_decimal=price_cents,
@@ -197,8 +207,20 @@ def create_invoice(request):
             stripe_customer_id = get_or_create_stripe_customer_id(user)
 
             # Create invoice items based on line items.
-            create_invoice_items(stripe_customer_id, descriptions, quantities, unit_prices)
+            result = create_invoice_items(stripe_customer_id, descriptions, quantities, unit_prices)
+            # If create_invoice_items catches an exception, it returns a jsonResponse.
+            # Handle that here and return it if an error occurs, otherwise result will be None.
+            if isinstance(result, JsonResponse):
+                return result
 
+            try:
+                issue_date_parsed = datetime.strptime(issue_date, "%Y-%m-%d")
+                due_date_parsed = datetime.strptime(due_date, "%Y-%m-%d")
+                if due_date_parsed < issue_date_parsed:
+                    return JsonResponse({"success": False, "error": "Invalid due date, please set due date to be after the issue date."})
+            except ValueError:
+                return JsonResponse({"success": False, "error": "Date format error."})
+            
             # Sets due date as a datetime object.
             # Stripe requires this to be a UNIX timestamp integer, so.. ya.
             due_date_timestamp = int(datetime.strptime(due_date, "%Y-%m-%d").timestamp())
@@ -242,9 +264,9 @@ def create_invoice(request):
             )
 
         except User.DoesNotExist:
-            return JsonResponse({"success": False, "error": "User not found"})
+            return JsonResponse({"success": False, "error": "User does not exist within the database, invoice has not been created."})
         except Exception as e:
-            return JsonResponse({"success": False, "error": str(e)})
+            return JsonResponse({"success": False, "error": f"An error has occurred: {str(e)}. Please double check all fields are valid."})
 
     return render(request, "admin/create_invoice.html")
 
@@ -389,13 +411,17 @@ def void_invoice(request, stripe_invoice_id):
 
 
 def create_checkout_session(request, invoice_id):
+    # Clear double messages
+    storage = get_messages(request)
     try:
         invoice = Invoice.objects.get(id=invoice_id)
     except Invoice.DoesNotExist:
-        return JsonResponse({"error": "Invoice not found"}, status=404)
+        messages.error(request, "Invoice not found")
+        return redirect('payment')
 
     if invoice.status == Invoice.Status.PAID or invoice.paid:
-        return JsonResponse({"error": "Invoice already paid"}, status=400)
+        messages.warning(request, "This invoice has already been paid. Thank You!")
+        return redirect('payment')
 
     session = stripe.checkout.Session.create(
         mode="payment",

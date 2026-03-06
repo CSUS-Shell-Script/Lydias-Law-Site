@@ -42,11 +42,28 @@ def practice_areas(r):
 def about(r): return render(r, "about.html")
 def services(r): return render(r, "services.html")
 def contact(r): return render(r, "contact.html", {"GOOGLE_MAPS_API_KEY": settings.GOOGLE_MAPS_API_KEY})
-def payment(r): 
-    if r.method == "POST":
-        invoice_id = r.POST.get("invoice_id")
-        return redirect("create_checkout_session", invoice_id=invoice_id)
-    return render(r, "payment.html")
+
+def payment(request):
+    """
+    Guest invoice payment entry point.
+    Validates the submitted Invoice ID before redirecting into the checkout flow.
+    """
+    if request.method != "POST":
+        return render(request, "payment.html")
+
+    raw_invoice_id = (request.POST.get("invoice_id") or "").strip()
+    if not raw_invoice_id or not raw_invoice_id.isdigit():
+        messages.error(request, "Incorrect Invoice ID.")
+        return render(request, "payment.html", status=400)
+
+    invoice_id = int(raw_invoice_id)
+    invoice = Invoice.objects.filter(id=invoice_id).first()
+    if not invoice:
+        messages.error(request, "Incorrect Invoice ID.")
+        return render(request, "payment.html", status=404)
+
+    return redirect("create_checkout_session", invoice_id=invoice_id)
+
 def schedule(r): return render(r, "schedule.html")
 def privacy(r): return render(r, "privacy.html")
 def appointment_confirmation(r): return render (r, "appointment_confirmation.html")
@@ -323,9 +340,41 @@ def client_about(r): return render(r, "client/about.html")
 
 # Client account/profile view
 @login_required
-def client_account(r):
-    context = get_user_account_data(r)
-    return render(r, "client/account.html", context)
+def client_account(request):
+    if request.method == "POST":
+        field = request.POST.get("field", "")
+        user = request.user
+
+        if field == "name":
+            first_name = (request.POST.get("first_name") or "").strip()
+            last_name = (request.POST.get("last_name") or "").strip()
+            if not first_name or not last_name:
+                messages.error(request, "First name and last name cannot be blank.")
+            else:
+                user.first_name = first_name
+                user.last_name = last_name
+                user.save(update_fields=["first_name", "last_name"])
+                messages.success(request, "Name updated successfully.")
+
+        elif field == "phone":
+            import re
+            raw_phone = (request.POST.get("new_value") or "").strip()
+            if not raw_phone:
+                messages.error(request, "Phone number cannot be blank.")
+            elif not re.match(r"^\d{7,15}$", raw_phone):
+                messages.error(request, "Phone number must be 7-15 digits (numbers only).")
+            else:
+                user.phone_number = raw_phone
+                user.save(update_fields=["phone_number"])
+                messages.success(request, "Phone number updated successfully.")
+
+        else:
+            messages.error(request, "That field cannot be updated here.")
+
+        return redirect("client_account")
+
+    context = get_user_account_data(request)
+    return render(request, "client/account.html", context)
 
 # Get feilds for client's account/profile view
 def get_user_account_data(request):
