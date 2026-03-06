@@ -370,7 +370,7 @@ def void_invoice(request, stripe_invoice_id):
     )
     return JsonResponse({"status": "voided"})
 
-@superuser_required
+
 def create_checkout_session(request, invoice_id):
     try:
         invoice = Invoice.objects.get(id=invoice_id)
