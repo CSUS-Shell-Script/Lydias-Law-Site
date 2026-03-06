@@ -1,4 +1,5 @@
 from allauth.account.adapter import DefaultAccountAdapter
+from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
 from django.shortcuts import redirect
 
 class MyAccountAdapter(DefaultAccountAdapter):
@@ -20,3 +21,13 @@ class MyAccountAdapter(DefaultAccountAdapter):
             # Handle exception here? Optional for now...
             pass
         return result
+
+# Google login users will not default to the role of 'GUEST'
+class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
+    def save_user(self, request, sociallogin, form=None):
+        user = super().save_user(request, sociallogin, form)
+
+        user.role = "CLIENT"
+        user.save()
+
+        return user

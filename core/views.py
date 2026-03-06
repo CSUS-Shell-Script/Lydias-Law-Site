@@ -17,8 +17,12 @@ from sitecontent.models import WebsiteContent
 from django.conf import settings
 from finances.models import Invoice
 from appointments.models import Appointments, Invitee
-from users.views import is_admin_user
 from django.utils import timezone
+from django.core.exceptions import PermissionDenied
+from core.decorators import superuser_required
+from users.models import User
+from django.db.models import Q
+import re
 
 
 ''' Are these needed anymore if site content is covering them?
@@ -38,11 +42,28 @@ def practice_areas(r):
 def about(r): return render(r, "about.html")
 def services(r): return render(r, "services.html")
 def contact(r): return render(r, "contact.html", {"GOOGLE_MAPS_API_KEY": settings.GOOGLE_MAPS_API_KEY})
-def payment(r): 
-    if r.method == "POST":
-        invoice_id = r.POST.get("invoice_id")
-        return redirect("create_checkout_session", invoice_id=invoice_id)
-    return render(r, "payment.html")
+
+def payment(request):
+    """
+    Guest invoice payment entry point.
+    Validates the submitted Invoice ID before redirecting into the checkout flow.
+    """
+    if request.method != "POST":
+        return render(request, "payment.html")
+
+    raw_invoice_id = (request.POST.get("invoice_id") or "").strip()
+    if not raw_invoice_id or not raw_invoice_id.isdigit():
+        messages.error(request, "Incorrect Invoice ID.")
+        return render(request, "payment.html", status=400)
+
+    invoice_id = int(raw_invoice_id)
+    invoice = Invoice.objects.filter(id=invoice_id).first()
+    if not invoice:
+        messages.error(request, "Incorrect Invoice ID.")
+        return render(request, "payment.html", status=404)
+
+    return redirect("create_checkout_session", invoice_id=invoice_id)
+
 def schedule(r): return render(r, "schedule.html")
 def privacy(r): return render(r, "privacy.html")
 def appointment_confirmation(r): return render (r, "appointment_confirmation.html")
@@ -53,12 +74,58 @@ def login(r):
     return render(r, "users/login.html", {"role": role})
 
 # admin views (login temporarily disabled for testing)
-# @login_required
+# @superuser_required
 #def admin_dashboard(r): return render(r, "admin/dashboard.html")
-# @login_required
+# @superuser_required
 def admin_schedule(r): return render(r, "admin/schedule.html")
-# @login_required
+# @superuser_required
 def admin_clients(r): return render(r, "admin/clients.html")
+# @superuser_required
+
+@login_required
+def admin_clients(request):
+    users = User.objects.filter(role__in=[User.Role.CLIENT])
+
+    # Search
+    search_query = request.GET.get('search', '').strip()
+    if search_query:
+        words = search_query.split()  # split multi-word search
+        search_filter = Q()
+        for word in words:
+            search_filter |= (
+                Q(first_name__icontains=word) |
+                Q(last_name__icontains=word) |
+                Q(email__icontains=word) |
+                Q(phone_number__icontains=word)
+            )
+        users = users.filter(search_filter)
+
+    # Balance filter
+    balance_filter = request.GET.get('balance')
+    if balance_filter == 'has_balance':
+        users = users.filter(retainer_balance__gt=0)
+    elif balance_filter == 'no_balance':
+        users = users.filter(retainer_balance=0)
+
+    # Sorting
+    sort = request.GET.get('sort', 'asc')
+    if sort == 'asc':
+        users = users.order_by('first_name')
+    elif sort == 'desc':
+        users = users.order_by('-first_name')
+
+    # Pagination
+    paginator = Paginator(users, 10)  # 10 users per page
+    page_number = request.GET.get('page', 1)  # default to first page
+    page_obj = paginator.get_page(page_number)
+
+    return render(request, 'admin/clients.html', {
+        'page_obj': page_obj,
+        'search_query': search_query,
+        'balance_filter': balance_filter,
+        'sort': sort,
+    })
+
 # @login_required
 def admin_editor(request):
     """
@@ -91,16 +158,15 @@ def admin_editor(request):
         'form': form,
         'content': content,
     })
-# @login_required
+# @superuser_required
 def admin_history(r): return render(r, "admin/history.html")
-# @login_required
+# @superuser_required
 def admin_appointment_confirmation(r): return render(r, "admin/appointment_confirmation.html")
-# @login_required
+# @superuser_required
 def admin_create_invoices(r): return render(r, "admin/create_invoice.html")
 
-@login_required
+@superuser_required
 def admin_appointments(request):
-    is_admin_user(request.user)
 
     qs = Appointments.objects.select_related('user_id').prefetch_related('invitees').all()
 
@@ -129,9 +195,8 @@ def admin_appointments(request):
         'date_to': date_to,
     })
 
-@login_required
+@superuser_required
 def admin_appointment_detail(request, pk):
-    is_admin_user(request.user)
 
     appointment = get_object_or_404(
         Appointments.objects.select_related('user_id').prefetch_related('invitees'),
@@ -145,9 +210,8 @@ def admin_appointment_detail(request, pk):
 
 
 @require_POST
-@login_required
+@superuser_required
 def admin_appointment_cancel(request, pk):
-    is_admin_user(request.user)
 
     appointment = get_object_or_404(
         Appointments.objects.prefetch_related("invitees"),
@@ -203,9 +267,8 @@ def admin_appointment_cancel(request, pk):
 
 
 @require_POST
-@login_required
+@superuser_required
 def admin_appointment_update_status(request, pk):
-    is_admin_user(request.user)
 
     appointment = get_object_or_404(Appointments.objects.prefetch_related("invitees"), pk=pk)
     next_url = request.POST.get("next") or reverse("admin_appointment_detail", args=[pk])
@@ -273,8 +336,71 @@ def admin_appointment_update_status(request, pk):
 # Client Views
 #@login_required
 def client_about(r): return render(r, "client/about.html")
-#@login_required
-def client_account(r): return render(r, "client/account.html")
+
+
+# Client account/profile view
+@login_required
+def client_account(request):
+    if request.method == "POST":
+        field = request.POST.get("field", "")
+        user = request.user
+
+        if field == "name":
+            first_name = (request.POST.get("first_name") or "").strip()
+            last_name = (request.POST.get("last_name") or "").strip()
+            if not first_name or not last_name:
+                messages.error(request, "First name and last name cannot be blank.")
+            else:
+                user.first_name = first_name
+                user.last_name = last_name
+                user.save(update_fields=["first_name", "last_name"])
+                messages.success(request, "Name updated successfully.")
+
+        elif field == "phone":
+            import re
+            raw_phone = (request.POST.get("new_value") or "").strip()
+            if not raw_phone:
+                messages.error(request, "Phone number cannot be blank.")
+            elif not re.match(r"^\d{7,15}$", raw_phone):
+                messages.error(request, "Phone number must be 7-15 digits (numbers only).")
+            else:
+                user.phone_number = raw_phone
+                user.save(update_fields=["phone_number"])
+                messages.success(request, "Phone number updated successfully.")
+
+        else:
+            messages.error(request, "That field cannot be updated here.")
+
+        return redirect("client_account")
+
+    context = get_user_account_data(request)
+    return render(request, "client/account.html", context)
+
+# Get feilds for client's account/profile view
+def get_user_account_data(request):
+    user = request.user # get user table
+
+    # format the phone number for UI
+    raw_phone = getattr(user, "phone_number", "")
+    #removes characters in phone numer that aren't digits
+    digits = ""
+    for ch in str(raw_phone):
+        if ch.isdigit():
+            digits += ch
+
+    if len(digits) == 10:
+        phone = f"({digits[:3]}) {digits[3:6]}-{digits[6:]}"
+    else:
+        phone = str(raw_phone)  # fallback
+
+    return {
+        # will be "" if not present
+        "email": user.email or "",
+        "first_name": user.first_name or "",
+        "last_name": user.last_name or "",
+        "phone": phone or ""
+    }
+
 #@login_required
 def client_contact(r): return render(r, "client/contact.html")
 #@login_required
@@ -283,10 +409,8 @@ def client_contact(r): return render(r, "client/contact.html")
 def client_practice_areas(r):
     content = WebsiteContent.objects.latest('created_at')
     return render(r, "client/practice_areas.html", {"content": content})
-#@login_required
-def client_schedule(r): return render(r, "client/schedule.html")
 
-#@login_required
+@login_required
 def client_invoices(r): 
     user = r.user
 
