@@ -9,6 +9,184 @@ from appointments.models import Appointments, Invitee
 from users.models import User
 
 
+
+# LLW-248 / LLW-251 — Client account page (backend + validation) testing
+class ClientAccountViewTests(TestCase):
+    """
+    LLW-248: Backend logic — GET populates from DB, POST persists changes.
+    LLW-251: Validation rules that match client-side constraints (blank names,
+             digits-only phone) are enforced server-side as well.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="client@example.com",
+            password="testpass123",
+            first_name="Jane",
+            last_name="Doe",
+            phone_number="5551234567",
+            is_active=True,
+        )
+        self.url = reverse("client_account")
+
+    def _messages(self, response):
+        return [m.message for m in get_messages(response.wsgi_request)]
+
+    # auth guard
+    def test_unauthenticated_redirects_to_login(self):
+        resp = self.client.get(self.url)
+        self.assertNotEqual(resp.status_code, 200)
+        self.assertIn(resp.status_code, (302, 301))
+
+    # GET pulls from DB properly
+    def test_get_populates_first_name(self):
+        self.client.force_login(self.user)
+        resp = self.client.get(self.url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Jane")
+
+    def test_get_populates_last_name(self):
+        self.client.force_login(self.user)
+        resp = self.client.get(self.url)
+        self.assertContains(resp, "Doe")
+
+    def test_get_populates_email(self):
+        self.client.force_login(self.user)
+        resp = self.client.get(self.url)
+        self.assertContains(resp, "client@example.com")
+
+    def test_get_formats_10_digit_phone(self):
+        """10-digit phone number should be formatted as (XXX) XXX-XXXX."""
+        self.client.force_login(self.user)
+        resp = self.client.get(self.url)
+        self.assertContains(resp, "(555) 123-4567")
+
+    def test_get_non_10_digit_phone_falls_back_to_raw(self):
+        self.user.phone_number = "123456"
+        self.user.save(update_fields=["phone_number"])
+        self.client.force_login(self.user)
+        resp = self.client.get(self.url)
+        self.assertContains(resp, "123456")
+
+    # POST name succeeds
+    def test_post_name_updates_first_and_last_name_in_db(self):
+        self.client.force_login(self.user)
+        self.client.post(self.url, {"field": "name", "first_name": "Alice", "last_name": "Smith"})
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.first_name, "Alice")
+        self.assertEqual(self.user.last_name, "Smith")
+
+    def test_post_name_success_shows_success_message(self):
+        self.client.force_login(self.user)
+        resp = self.client.post(
+            self.url, {"field": "name", "first_name": "Alice", "last_name": "Smith"}, follow=True
+        )
+        self.assertIn("Name updated successfully.", self._messages(resp))
+
+    def test_post_name_redirects_after_success(self):
+        self.client.force_login(self.user)
+        resp = self.client.post(self.url, {"field": "name", "first_name": "Alice", "last_name": "Smith"})
+        self.assertRedirects(resp, self.url)
+
+    # POST name blank is valid
+    def test_post_name_blank_first_name_rejected(self):
+        self.client.force_login(self.user)
+        resp = self.client.post(
+            self.url, {"field": "name", "first_name": "", "last_name": "Smith"}, follow=True
+        )
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.first_name, "Jane")  # unchanged
+        self.assertIn("First name and last name cannot be blank.", self._messages(resp))
+
+    def test_post_name_blank_last_name_rejected(self):
+        self.client.force_login(self.user)
+        resp = self.client.post(
+            self.url, {"field": "name", "first_name": "Alice", "last_name": ""}, follow=True
+        )
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.last_name, "Doe")  # unchanged
+        self.assertIn("First name and last name cannot be blank.", self._messages(resp))
+
+    def test_post_name_whitespace_only_rejected(self):
+        self.client.force_login(self.user)
+        resp = self.client.post(
+            self.url, {"field": "name", "first_name": "   ", "last_name": "   "}, follow=True
+        )
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.first_name, "Jane")
+        self.assertIn("First name and last name cannot be blank.", self._messages(resp))
+
+    # POST phone succeeds
+    def test_post_phone_updates_phone_in_db(self):
+        self.client.force_login(self.user)
+        self.client.post(self.url, {"field": "phone", "new_value": "8005551234"})
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.phone_number, "8005551234")
+
+    def test_post_phone_success_shows_success_message(self):
+        self.client.force_login(self.user)
+        resp = self.client.post(
+            self.url, {"field": "phone", "new_value": "8005551234"}, follow=True
+        )
+        self.assertIn("Phone number updated successfully.", self._messages(resp))
+
+    def test_post_phone_redirects_after_success(self):
+        self.client.force_login(self.user)
+        resp = self.client.post(self.url, {"field": "phone", "new_value": "8005551234"})
+        self.assertRedirects(resp, self.url)
+
+    # POST phone is digit-only
+    def test_post_phone_blank_rejected(self):
+        self.client.force_login(self.user)
+        resp = self.client.post(self.url, {"field": "phone", "new_value": ""}, follow=True)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.phone_number, "5551234567")  # unchanged
+        self.assertIn("Phone number cannot be blank.", self._messages(resp))
+
+    def test_post_phone_with_letters_rejected(self):
+        self.client.force_login(self.user)
+        resp = self.client.post(
+            self.url, {"field": "phone", "new_value": "555-123-4567"}, follow=True
+        )
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.phone_number, "5551234567")
+        self.assertIn("Phone number must be 7-15 digits (numbers only).", self._messages(resp))
+
+    def test_post_phone_too_short_rejected(self):
+        self.client.force_login(self.user)
+        resp = self.client.post(self.url, {"field": "phone", "new_value": "123"}, follow=True)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.phone_number, "5551234567")
+        self.assertIn("Phone number must be 7-15 digits (numbers only).", self._messages(resp))
+
+    def test_post_phone_too_long_rejected(self):
+        self.client.force_login(self.user)
+        resp = self.client.post(
+            self.url, {"field": "phone", "new_value": "1234567890123456"}, follow=True
+        )
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.phone_number, "5551234567")
+        self.assertIn("Phone number must be 7-15 digits (numbers only).", self._messages(resp))
+
+    # email is read-only (subject to change, discussing with team later)
+    def test_post_email_field_is_rejected(self):
+        self.client.force_login(self.user)
+        resp = self.client.post(
+            self.url, {"field": "email", "new_value": "newemail@example.com"}, follow=True
+        )
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.email, "client@example.com")  # unchanged
+        self.assertIn("That field cannot be updated here.", self._messages(resp))
+
+    # unknown field cannot be updated
+    def test_post_unknown_field_shows_error(self):
+        self.client.force_login(self.user)
+        resp = self.client.post(
+            self.url, {"field": "retainer_balance", "new_value": "9999"}, follow=True
+        )
+        self.assertIn("That field cannot be updated here.", self._messages(resp))
+
+
 class AdminAppointmentActionsTests(TestCase):
     def setUp(self):
         self.admin_user = User.objects.create_user(
