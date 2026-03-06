@@ -23,7 +23,10 @@ from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
 from sitecontent.views import get_latest_website_content
 <<<<<<< HEAD
+<<<<<<< HEAD
 from .forms import UserSignUpForm
+=======
+>>>>>>> 532ec886d9885f517d33931a52010f0111d67951
 
 =======
 from core.decorators import superuser_required
