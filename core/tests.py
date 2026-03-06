@@ -168,3 +168,124 @@ class AdminAppointmentActionsTests(TestCase):
         appt.refresh_from_db()
         self.assertEqual(appt.status, Appointments.Status.CANCELLED)
         self.assertIn("That status change isn’t allowed.", self._messages(resp))
+
+#Test cases for the admin_clients view
+class AdminClientsViewTest(TestCase):    
+    def setUp(self):
+        # Create admin for login 
+        self.admin = User.objects.create_user(
+            email='admin@example.com',
+            password='adminpass',  # create_user hashes this automatically
+            first_name='Admin',
+            last_name='User',
+            role=User.Role.ADMIN,
+            is_active=True  # Make sure user is active
+        )
+        
+        # Create test clients
+        self.client_with_balance = User.objects.create_user(
+            email='client1@example.com',
+            password='password123',
+            first_name='John',
+            last_name='Doe',
+            phone_number='123-456-7890',
+            role=User.Role.CLIENT,
+            retainer_balance=100,
+            is_active=True
+        )
+        
+        self.client_no_balance = User.objects.create_user(
+            email='client2@example.com',
+            password='password123',
+            first_name='Jane',
+            last_name='Smith',
+            phone_number='987-654-3210',
+            role=User.Role.CLIENT,
+            retainer_balance=0,
+            is_active=True
+        )
+        
+        # Create non-client users that should NOT appear
+        self.guest = User.objects.create_user(
+            email='guest@example.com',
+            password='password123',
+            first_name='Guest',
+            last_name='User',
+            role=User.Role.GUEST,
+            is_active=True
+        )
+        
+    #Test that only CLIENT role users appear
+    def test_only_clients_shown(self):
+        # Login first
+        login_successful = self.client.login(email='admin@example.com', password='adminpass')
+        self.assertTrue(login_successful, "Admin login failed!")
+        
+        # Make the request
+        response = self.client.get(reverse('admin_clients'))
+        
+        # Check response
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNotNone(response.context)
+        
+        # Should only show 2 clients (John and Jane)
+        self.assertEqual(len(response.context['page_obj']), 2)
+        
+        # Verify all returned users have CLIENT role
+        for user in response.context['page_obj']:
+            self.assertEqual(user.role, User.Role.CLIENT)
+            
+        # Verify guest is NOT in the results
+        user_emails = [user.email for user in response.context['page_obj']]
+        self.assertNotIn('guest@example.com', user_emails)
+
+    #Test search functionality      
+    def test_search_works(self):
+        self.client.login(email='admin@example.com', password='adminpass')
+        
+        # Search by first name
+        response = self.client.get(reverse('admin_clients'), {'search': 'John'})
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNotNone(response.context)
+        self.assertEqual(len(response.context['page_obj']), 1)
+        self.assertEqual(response.context['page_obj'][0].email, 'client1@example.com')
+        
+        # Search by email
+        response = self.client.get(reverse('admin_clients'), {'search': 'client2'})
+        self.assertEqual(len(response.context['page_obj']), 1)
+        self.assertEqual(response.context['page_obj'][0].email, 'client2@example.com')
+        
+        # Search by phone
+        response = self.client.get(reverse('admin_clients'), {'search': '123-456'})
+        self.assertEqual(len(response.context['page_obj']), 1)
+        self.assertEqual(response.context['page_obj'][0].email, 'client1@example.com')
+        
+    #Test balance filter functionality
+    def test_balance_filter_works(self):
+        self.client.login(email='admin@example.com', password='adminpass')
+        
+        # Filter has balance
+        response = self.client.get(reverse('admin_clients'), {'balance': 'has_balance'})
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNotNone(response.context)
+        self.assertEqual(len(response.context['page_obj']), 1)
+        self.assertEqual(response.context['page_obj'][0].retainer_balance, 100)
+        
+        # Filter no balance
+        response = self.client.get(reverse('admin_clients'), {'balance': 'no_balance'})
+        self.assertEqual(len(response.context['page_obj']), 1)
+        self.assertEqual(response.context['page_obj'][0].retainer_balance, 0)
+        
+    #Test search + balance filter together
+    def test_combined_filters(self):
+        self.client.login(email='admin@example.com', password='adminpass')
+        
+        response = self.client.get(reverse('admin_clients'), {
+            'search': 'John',
+            'balance': 'has_balance'
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNotNone(response.context)
+        self.assertEqual(len(response.context['page_obj']), 1)
+        self.assertEqual(response.context['page_obj'][0].first_name, 'John')
+        self.assertEqual(response.context['page_obj'][0].retainer_balance, 100)
