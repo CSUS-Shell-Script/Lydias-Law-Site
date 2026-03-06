@@ -77,7 +77,21 @@
 <div class="invoice-container">
     <form method="POST" class="invoice-form">
         {% csrf_token %}
-        
+
+        {% if messages %}
+        <div class="container mt-3">
+            {% for message in messages %}
+                <div class="alert custom-alert alert-dismissible fade show shadow-sm" role="alert">
+                    {{ message }}
+                    <button type="button" 
+                    class="btn-close shadow-none bg-transparent" 
+                    data-bs-dismiss="alert" 
+                    aria-label="Close" 
+                    style="position: absolute; right: 1rem; top: 50%; transform: translateY(-50%); border: none;"> </button>
+                </div>
+            {% endfor %}    
+        </div>
+        {% endif %}
         <label for="invoice_id">Please enter your Invoice ID</label>
         <input type="text" name="invoice_id" id="invoice_id" placeholder="Enter Invoice ID">
 

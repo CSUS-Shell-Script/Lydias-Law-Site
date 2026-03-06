@@ -13,6 +13,8 @@ from core.decorators import superuser_required
 import stripe
 from users.models import User
 from .models import Invoice, StripeWebhookEvent
+from django.contrib import messages
+from django.contrib.messages import get_messages
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
 
@@ -372,13 +374,17 @@ def void_invoice(request, stripe_invoice_id):
 
 
 def create_checkout_session(request, invoice_id):
+    # Clear double messages
+    storage = get_messages(request)
     try:
         invoice = Invoice.objects.get(id=invoice_id)
     except Invoice.DoesNotExist:
-        return JsonResponse({"error": "Invoice not found"}, status=404)
+        messages.error(request, "Invoice not found")
+        return redirect('payment')
 
     if invoice.status == Invoice.Status.PAID or invoice.paid:
-        return JsonResponse({"error": "Invoice already paid"}, status=400)
+        messages.warning(request, "This invoice has already been paid. Thank You!")
+        return redirect('payment')
 
     session = stripe.checkout.Session.create(
         mode="payment",
