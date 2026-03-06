@@ -18,6 +18,8 @@ from decimal import ROUND_HALF_UP, Decimal
 from appointments.models import Appointments
 from django.utils import timezone
 from django.core.exceptions import PermissionDenied
+from django.core.validators import validate_email
+from django.core.exceptions import ValidationError
 from sitecontent.views import get_latest_website_content
 
 
@@ -41,12 +43,19 @@ def login_view(request):
     email = (request.POST.get("email") or "").strip().lower()
     password = request.POST.get("password") or ""
 
+    # Check if user exists.
+    User = get_user_model()
+    if not User.objects.filter(email__iexact=email).exists():
+        messages.error(request, "User does not exist, please create an account to login.")
+        return render(request, "users/login.html", {"role": request.GET.get("role", "guest")}, status=404)
+
     # authenticate() will look up by USERNAME_FIELD (email in our model)
+    # retrieves the user if it email and password are correct, otherwise returns None.
     user = authenticate(request, email=email, password=password)
 
+    # User has input the incorrect email/password combination.
     if user is None:
-        # Wrong email/password
-        messages.error(request, "Invalid credentials.")
+        messages.error(request, "Your email and password did not match, please try again.")
         return render(request, "users/login.html", {"role": request.GET.get("role", "guest")}, status=401)
 
     if not user.is_active:
@@ -83,6 +92,14 @@ def signup(r):
 
         if password1 != password1.strip():
             messages.error(r, "Password cannot start or end with spaces.")
+            return render(r, 'users/signup.html')
+        
+        # Checks if email is valid.
+        # e.g. (checks for an @, ensures there is a domain like .com, and makes sure both parts are non-empty).
+        try:
+            validate_email(email)
+        except ValidationError:
+            messages.error(r, "Please enter a valid email address.")
             return render(r, 'users/signup.html')
 
         if User.objects.filter(email__iexact=email).exists():
