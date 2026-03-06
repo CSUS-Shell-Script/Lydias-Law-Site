@@ -146,11 +146,18 @@
                 {% endif %}
               </td>
               <td>
-                {% if inv.hosted_invoice_url %}
-                  <a href="{{ inv.hosted_invoice_url }}" target="_blank">View on Stripe</a>
+                {% if inv.status == 'PAID' %}
+                  <a href="{{ inv.hosted_invoice_url }}" target="_blank" class="text-muted small" >
+                    View PAID Invoice</a>
+                {% elif inv.status == 'VOIDED' %}
+                    <a href="{{ inv.hosted_invoice_url }}" target="_blank" class="text-muted small">
+                    View VOIDED Invoice</a>
+                {% elif inv.hosted_invoice_url %}
+                      <a href="{{ inv.hosted_invoice_url }}" target="_blank" class="btn btn-sm btn-pending-action rounded-pill px-3 shadow-sm">
+                    Pay Invoice</a>
                 {% else %}
                   <p style="padding-left: 2rem; font-weight: 800;">-</p>
-                {% endif %}          
+                {% endif %}   
               </td>
               <td>{{ inv.created_at|date:"M j, Y g:i A" }}</td>
               <td>
