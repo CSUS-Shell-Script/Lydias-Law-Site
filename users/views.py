@@ -18,9 +18,8 @@ from django.db.models.functions import Coalesce
 from decimal import ROUND_HALF_UP, Decimal
 from appointments.models import Appointments
 from django.utils import timezone
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.validators import validate_email
-from django.core.exceptions import ValidationError
 from sitecontent.views import get_latest_website_content
 from core.decorators import superuser_required
 
@@ -33,44 +32,40 @@ def login(r):
 # Handles login form submission and authenticates user
 @require_http_methods(["GET", "POST"])
 def login_view(request):
-    """
-    Render login page (GET) and authenticate credentials (POST).
-    Uses django.contrib.auth.authenticate() with email + password.
-    """
+    google_login_enabled = SocialApp.objects.filter(provider="google").exists()
+
     if request.method == "GET":
         role = request.GET.get("role", "guest")
-        google_login_enabled = SocialApp.objects.filter(provider="google").exists()
-        return render(request, "users/login.html", {"role": role, "google_login_enabled": google_login_enabled})
+        return render(
+            request,
+            "users/login.html",
+            {"role": role, "google_login_enabled": google_login_enabled},
+        )
 
     # POST
     role = (request.POST.get("role") or request.GET.get("role") or "guest").strip().lower()
     email = (request.POST.get("email") or "").strip().lower()
     password = request.POST.get("password") or ""
-    google_login_enabled = SocialApp.objects.filter(provider="google").exists()
 
-    # Check if user exists.
     User = get_user_model()
     if not User.objects.filter(email__iexact=email).exists():
         messages.error(request, "User does not exist, please create an account to login.")
-        return render(request, "users/login.html", {"role": request.GET.get("role", "guest")}, status=404)
+        return render(
+            request,
+            "users/login.html",
+            {"role": role, "google_login_enabled": google_login_enabled},
+            status=404,
+        )
 
-    # authenticate() will look up by USERNAME_FIELD (email in our model)
-    # retrieves the user if it email and password are correct, otherwise returns None.
     user = authenticate(request, email=email, password=password)
 
-    # User has input the incorrect email/password combination.
     if user is None:
-        User = get_user_model()
         if role == "admin":
             email_exists = User.objects.filter(email__iexact=email, is_staff=True).exists()
         else:
             email_exists = User.objects.filter(email__iexact=email, is_staff=False).exists()
 
-        if not email_exists:
-            messages.error(request, "Invalid email.")
-        else:
-            messages.error(request, "Invalid password.")
-
+        messages.error(request, "Invalid email." if not email_exists else "Invalid password.")
         return render(
             request,
             "users/login.html",
@@ -79,7 +74,6 @@ def login_view(request):
         )
 
     if not user.is_active:
-        # Users have is_active=False until email is verified
         messages.error(request, "Please verify your email to activate your account.")
         return render(
             request,
@@ -88,7 +82,6 @@ def login_view(request):
             status=403,
         )
 
-    # Enforce login intent (admin vs client).
     if role == "admin" and not user.is_staff:
         messages.error(request, "Invalid email.")
         return render(
@@ -97,6 +90,7 @@ def login_view(request):
             {"role": role, "google_login_enabled": google_login_enabled},
             status=401,
         )
+
     if role != "admin" and user.is_staff:
         messages.error(request, "Invalid email.")
         return render(
@@ -106,12 +100,8 @@ def login_view(request):
             status=401,
         )
 
-    # Success: log them in and redirect
     auth_login(request, user)
-    if user.is_staff == 1:
-        return redirect("admin_dashboard")
-    return redirect("client_dashboard")
-
+    return redirect("admin_dashboard" if user.is_staff else "client_dashboard")
 def signup_page(r):
     return render(r, "users/signup.html")
 
@@ -127,6 +117,15 @@ def signup(r):
 
         password1 = r.POST.get('password1') or ""
         password2 = r.POST.get('password2') or ""
+
+        if (first_name == "" or 
+            last_name == "" or 
+            email == "" or 
+            phone_number == "" or 
+            password1 == "" or 
+            password2 == ""):
+            messages.error(r, "All fields must be filled in")
+            return render(r, "users/signup.html")
 
         # Basic checks
         if password1 != password2:
@@ -273,6 +272,12 @@ def client_dashboard(request):
         "upcoming_appts": upcoming_appts,
         "content": content,
     })
+
+# Helper: only allow staff/admin users
+def is_admin_user(user):
+    if not user.is_authenticated or not user.is_staff:
+        raise PermissionDenied
+    return user.is_authenticated and user.is_staff
 
 # Admin dashboard view
 @superuser_required
