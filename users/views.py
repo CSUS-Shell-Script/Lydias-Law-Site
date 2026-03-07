@@ -117,6 +117,12 @@ def signup(r):
 
         password1 = r.POST.get('password1') or ""
         password2 = r.POST.get('password2') or ""
+        form_data = {
+            "first_name": first_name,
+            "last_name": last_name,
+            "email": email,
+            "phone_number": phone_number,
+        }
 
         if (first_name == "" or 
             last_name == "" or 
@@ -125,16 +131,16 @@ def signup(r):
             password1 == "" or 
             password2 == ""):
             messages.error(r, "All fields must be filled in")
-            return render(r, "users/signup.html")
+            return render(r, "users/signup.html", {"form_data": form_data})
 
         # Basic checks
         if password1 != password2:
             messages.error(r, "Passwords do not match.")
-            return render(r, 'users/signup.html')
+            return render(r, 'users/signup.html', {"form_data": form_data})
 
         if password1 != password1.strip():
             messages.error(r, "Password cannot start or end with spaces.")
-            return render(r, 'users/signup.html')
+            return render(r, 'users/signup.html', {"form_data": form_data})
         
         # Checks if email is valid.
         # e.g. (checks for an @, ensures there is a domain like .com, and makes sure both parts are non-empty).
@@ -142,11 +148,11 @@ def signup(r):
             validate_email(email)
         except ValidationError:
             messages.error(r, "Please enter a valid email address.")
-            return render(r, 'users/signup.html')
+            return render(r, 'users/signup.html', {"form_data": form_data})
 
         if User.objects.filter(email__iexact=email).exists():
             messages.error(r, "An account with that email already exists.")
-            return render(r, 'users/signup.html')
+            return render(r, 'users/signup.html', {"form_data": form_data})
 
         # Create the user with a **real** password
         user = User.objects.create_user(

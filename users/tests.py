@@ -321,6 +321,35 @@ class SignupTests(TestCase):
         self.assertEqual(User.objects.filter(email="notanemail").count(), 0)
         print("Assertion 3 PASS: no user was created with invalid email")
 
+    def test_signup_password_mismatch_preserves_non_password_fields(self):
+        """
+        On password mismatch, non-password fields should be preserved while
+        password fields remain blank.
+        """
+        post_data = {
+            "first-name": "Jane",
+            "last-name": "Smith",
+            "email": "jane@example.com",
+            "password1": "Password1!",
+            "password2": "DifferentPassword1!",
+            "phone-number": "1234567890",
+        }
+
+        response = self.client.post(self.signup_url, post_data, follow=True)
+        messages_list = list(get_messages(response.wsgi_request))
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Passwords do not match.", [str(m) for m in messages_list])
+
+        form_data = response.context.get("form_data", {})
+        self.assertEqual(form_data.get("first_name"), "Jane")
+        self.assertEqual(form_data.get("last_name"), "Smith")
+        self.assertEqual(form_data.get("email"), "jane@example.com")
+        self.assertEqual(form_data.get("phone_number"), "1234567890")
+
+        content = response.content.decode()
+        self.assertNotIn('name="password1" value="Password1!"', content)
+        self.assertNotIn('name="password2" value="DifferentPassword1!"', content)
+
     def test_signup_success_with_valid_data(self):
         """
         Test that signup succeeds with valid email and password
