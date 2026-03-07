@@ -506,8 +506,90 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         });
 
-        form.addEventListener("submit", () => {
-            isDirty = false;
+        form.addEventListener("submit", function(e) {
+            let hasError = false;
+
+            // Validate plain text inputs/textareas
+            form.querySelectorAll("input[type='text'], textarea").forEach(function(input) {
+                const formGroup = input.closest('.form-group');
+                const oldError = formGroup ? formGroup.querySelector('.input-invalid-feedback') : null;
+                if (oldError) oldError.remove();
+                input.classList.remove('is-invalid');
+
+                if (input.value.trim() === '') {
+                    hasError = true;
+                    input.classList.add('is-invalid');
+                    if (formGroup) {
+                        const errDiv = document.createElement('div');
+                        errDiv.className = 'invalid-feedback d-block input-invalid-feedback';
+                        errDiv.textContent = 'This field cannot be left empty.';
+                        input.insertAdjacentElement('afterend', errDiv);
+
+                        const accordion = formGroup.closest('.accordion-collapse');
+                        if (accordion && !accordion.classList.contains('show')) {
+                            accordion.classList.add('show');
+                            const button = document.querySelector(`[data-bs-target="#${accordion.id}"]`);
+                            if (button) {
+                                button.classList.remove('collapsed');
+                                button.setAttribute('aria-expanded', 'true');
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Validate CKEditor fields
+            document.querySelectorAll('.ck-editor__editable').forEach(function(editorEl) {
+                const wrapper = editorEl.closest('.ck-editor');
+                const formGroup = wrapper ? wrapper.closest('.form-group') : null;
+
+                const isEmpty = editorEl.innerText.trim() === '' ||
+                                editorEl.innerHTML === '<p><br></p>' ||
+                                editorEl.innerHTML === '';
+
+                const oldError = formGroup ? formGroup.querySelector('.ck-invalid-feedback') : null;
+                if (oldError) oldError.remove();
+
+                if (isEmpty) {
+                    hasError = true;
+                    if (formGroup) {
+                        const errDiv = document.createElement('div');
+                        errDiv.className = 'invalid-feedback d-block ck-invalid-feedback';
+                        errDiv.textContent = 'This field cannot be left empty.';
+                        wrapper.insertAdjacentElement('afterend', errDiv);
+
+                        const accordion = formGroup.closest('.accordion-collapse');
+                        if (accordion && !accordion.classList.contains('show')) {
+                            accordion.classList.add('show');
+                            const button = document.querySelector(`[data-bs-target="#${accordion.id}"]`);
+                            if (button) {
+                                button.classList.remove('collapsed');
+                                button.setAttribute('aria-expanded', 'true');
+                            }
+                        }
+                    }
+                }
+            });
+
+            if (hasError) {
+                e.preventDefault();
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+
+                // Show error banner at top of container
+                const container = document.querySelector('.editor-container');
+                const oldBanner = container.querySelector('.error-banner');
+                if (oldBanner) oldBanner.remove();
+
+                const banner = document.createElement('div');
+                banner.className = 'alert alert-danger alert-dismissible fade show error-banner';
+                banner.innerHTML = `
+                    Please correct the errors below.
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                `;
+                container.insertAdjacentElement('afterbegin', banner);
+                        } else {
+                isDirty = false;
+            }
         });
 
         window.addEventListener("beforeunload", function (e) {
