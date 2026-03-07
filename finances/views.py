@@ -3,6 +3,7 @@ import json
 import logging
 
 from django.conf import settings
+from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
 from django.http import JsonResponse
 from django.shortcuts import render, redirect
@@ -15,11 +16,16 @@ from core.decorators import superuser_required
 import stripe
 from users.models import User
 from .models import Invoice, StripeWebhookEvent
+from django.contrib import messages
+from django.contrib.messages import get_messages
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
 
 # Standard Django logger for recording webhook activity.
 logger = logging.getLogger(__name__)
+
+# Exclusive upper bound for unit price (valid range: 0 < unit_price < UNIT_PRICE_MAX).
+UNIT_PRICE_MAX = 99_999
 
 
 def get_or_create_stripe_customer_id(user):
@@ -164,12 +170,13 @@ def create_invoice_items(stripe_customer_id, descriptions, quantities, unit_pric
     # is calculated during the creation of the stripe invoice.
     for desc, quantity, price in zip(descriptions, quantities, unit_prices):
         try:
-            price_cents = int(float(price) * 100)
+            price_float = float(price)
+            price_cents = int(price_float * 100)
             quantity = int(quantity)
-            
-            # Validate that price and quantity are positive
-            if price_cents <= 0:
-                return JsonResponse({"success": False, "error": "Unit price must be greater than zero."})
+
+            # Validate that price is within allowed bounds (0 < unit_price < UNIT_PRICE_MAX).
+            if price_float <= 0 or price_float >= UNIT_PRICE_MAX:
+                return JsonResponse({"success": False, "error": "Unit price must be greater than $0 and less than $99,999."})
             if quantity <= 0:
                 return JsonResponse({"success": False, "error": "Quantity must be greater than zero."})
 
@@ -199,6 +206,10 @@ def create_invoice(request):
         try:
             # Get user.
             user = User.objects.get(email=user_email)
+
+            # Prevent creating a new invoice if the client already has a pending one.
+            if Invoice.objects.filter(user=user, status=Invoice.Status.PENDING).exists():
+                return JsonResponse({"success": False, "error": "This client already has a pending invoice. Please have the client pay it or void the pending invoice before creating a new one."})
 
             # Check if user has existing Stripe ID.
             stripe_customer_id = get_or_create_stripe_customer_id(user)
@@ -279,18 +290,34 @@ def stripe_list_client_invoices(user, limit=50):
     return stripe.Invoice.list(customer=user.provider_customer_id, limit=limit)
 
 @superuser_required # Ensures only visible to admins (PermissionDenied if not)
-def admin_transactions(request):    
+def admin_transactions(request):
     # Fetch from local DB so we can link to Django users
     # Use select_related to get the user email in one database hit
     invoices = Invoice.objects.select_related("user").all().order_by("-created_at")
 
-   # helper attributes so template logic works
-    for inv in invoices:
+    # per_page: only 20 (default) or 40 are accepted; anything else falls back to 20
+    try:
+        per_page = int(request.GET.get("per_page", 20))
+    except (TypeError, ValueError):
+        per_page = 20
+    if per_page not in (20, 40):
+        per_page = 20
+
+    paginator = Paginator(invoices, per_page)
+    page_number = request.GET.get("page", 1)
+    page_obj = paginator.get_page(page_number)
+
+    # Attach display helpers to the current page's items only
+    for inv in page_obj:
         # Convert cents (stripe) to dollars for UI
         inv.amount_dollars = inv.amount / 100.0 if inv.amount else 0.0
-        # Ensure status is uppercase for templates checks
-        inv.display_status = str(inv.status).upper()    
-    return render(request, "admin/transactions.html", {"invoices": invoices })
+        # Ensure status is uppercase for template checks
+        inv.display_status = str(inv.status).upper()
+
+    return render(request, "admin/transactions.html", {
+        "page_obj": page_obj,
+        "per_page": per_page,
+    })
 
 @superuser_required
 def admin_stripe_invoice_detail(request, stripe_invoice_id):
@@ -392,13 +419,17 @@ def void_invoice(request, stripe_invoice_id):
 
 
 def create_checkout_session(request, invoice_id):
+    # Clear double messages
+    storage = get_messages(request)
     try:
         invoice = Invoice.objects.get(id=invoice_id)
     except Invoice.DoesNotExist:
-        return JsonResponse({"error": "Invoice not found"}, status=404)
+        messages.error(request, "Invoice not found")
+        return redirect('payment')
 
     if invoice.status == Invoice.Status.PAID or invoice.paid:
-        return JsonResponse({"error": "Invoice already paid"}, status=400)
+        messages.warning(request, "This invoice has already been paid. Thank You!")
+        return redirect('payment')
 
     session = stripe.checkout.Session.create(
         mode="payment",
