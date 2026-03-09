@@ -20,21 +20,21 @@
         <label for="first-name" class="form-label mb-0" style="color:#BDBDBD">
           First Name<span style="color:red;">*</span>
         </label>
-        <input type="text" class="form-control" name="first-name" id="first-name" style="border-radius:1.5rem;" required>
+        <input type="text" class="form-control" name="first-name" id="first-name" style="border-radius:1.5rem;" value="{{ form_data.first_name|default:'' }}" required>
       </div>
 
       <div class="mb-3">
         <label for="last-name" class="form-label mb-0" style="color:#BDBDBD">
           Last Name<span style="color:red;">*</span>
         </label>
-        <input type="text" class="form-control" name="last-name" id="last-name" style="border-radius:1.5rem;" required>
+        <input type="text" class="form-control" name="last-name" id="last-name" style="border-radius:1.5rem;" value="{{ form_data.last_name|default:'' }}" required>
       </div>
 
       <div class="mb-3">
         <label for="email" class="form-label mb-0" style="color:#BDBDBD">
           Email<span style="color:red;">*</span>
         </label>
-        <input type="email" class="form-control" name="email" id="email" style="border-radius:1.5rem;" required>
+        <input type="email" class="form-control" name="email" id="email" style="border-radius:1.5rem;" value="{{ form_data.email|default:'' }}" required>
       </div>
 
       <div class="mb-3">
@@ -42,7 +42,7 @@
           Phone Number<span style="color:red;">*</span>
         </label>
         <input type="tel" class="form-control" name="phone-number" id="phone-number"
-               style="border-radius:1.5rem;" required pattern="[0-9]{10}" title="Must have 10 numbers">
+               style="border-radius:1.5rem;" value="{{ form_data.phone_number|default:'' }}" required pattern="[0-9]{10}" title="Must have 10 numbers">
       </div>
 
       <div class="mb-3">
