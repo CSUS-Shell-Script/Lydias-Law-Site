@@ -1,5 +1,5 @@
 from django.contrib.messages import get_messages
-from django.test import TestCase, Client
+from django.test import TestCase, Client, override_settings
 from django.urls import reverse
 from django.contrib.sites.models import Site
 from allauth.socialaccount.models import SocialApp
@@ -404,3 +404,18 @@ class PageNotFoundTests(TestCase):
     def test_404_uses_custom_template(self):
         resp = self.client.get("/fake-page-test/")
         self.assertTemplateUsed(resp, "404.html")
+from django.test import TestCase, override_settings, Client
+
+class InternalServerErrorTests(TestCase):
+
+    @override_settings(DEBUG=False)
+    def test_500_page_returns_500(self):
+        client = Client(raise_request_exception=False)
+        resp = client.get("/test-500/")
+        self.assertEqual(resp.status_code, 500)
+
+    @override_settings(DEBUG=False)
+    def test_500_uses_custom_template(self):
+        client = Client(raise_request_exception=False)
+        resp = client.get("/test-500/")
+        self.assertTemplateUsed(resp, "500.html")

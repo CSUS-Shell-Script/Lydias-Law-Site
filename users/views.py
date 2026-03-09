@@ -307,3 +307,6 @@ def instant_email_confirm_view(r, key):
     # Upon signing up, the user was not logging into the account that they had just created and authenticated.
     # This function fixes this issue by redirecting the user here to log in before going to the dashboard.
     return redirect(reverse('client_dashboard'))
+
+def trigger_500(r):
+    raise Exception("Intentional test error")
