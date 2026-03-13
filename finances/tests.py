@@ -242,22 +242,30 @@ class ClientTransactionsViewTest(TestCase):
         self.invoices_url = reverse('client_invoices')
 
     def create_test_invoices(self):
+        base_time = timezone.now()
+
         # Create current (pending) invoice with Stripe URL
         self.current_invoice = Invoice.objects.create(
             user=self.client_user,
             amount=50000,  # $500.00
             status=Invoice.Status.PENDING,
-            created_at=timezone.now() - timedelta(days=1),
-            hosted_invoice_url='https://invoice.stripe.com/i/test_invoice_123' 
+            hosted_invoice_url='https://invoice.stripe.com/i/test_invoice_123'
         )
-        
-        # Create 12 past invoices (paid)
+        Invoice.objects.filter(pk=self.current_invoice.pk).update(
+            created_at=base_time - timedelta(days=1)
+        )
+        self.current_invoice.refresh_from_db()
+
+        # Create 12 past invoices (paid), then force deterministic timestamps via update()
+        # so auto_now_add is bypassed. i=0 is most recent (now-2d), i=11 is oldest (now-13d).
         for i in range(12):
-            Invoice.objects.create(
+            inv = Invoice.objects.create(
                 user=self.client_user,
                 amount=25000 + (i * 1000),
                 status=Invoice.Status.PAID,
-                created_at=timezone.now() - timedelta(days=i+2)
+            )
+            Invoice.objects.filter(pk=inv.pk).update(
+                created_at=base_time - timedelta(days=i + 2)
             )
 
     # Test unauthenticated users are redirected to login
