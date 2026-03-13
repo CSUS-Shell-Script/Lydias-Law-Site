@@ -3,7 +3,7 @@ from datetime import timedelta
 from django.urls import reverse
 from django.utils import timezone 
 from django.contrib.messages import get_messages
-from django.contrib.auth import get_user_model
+from django.contrib.auth import get_user_model, authenticate
 from django.contrib.sites.models import Site
 from django.test import TestCase, Client
 from django.urls import reverse
@@ -13,6 +13,9 @@ from allauth.socialaccount.models import SocialApp
 
 from finances.models import Invoice
 from users.models import AdminProfile
+from decimal import Decimal
+
+import logging
 
 import json
 
@@ -219,6 +222,132 @@ class AdminTransactionsViewTest(TestCase):
         self.assertTrue(hasattr(inv, "display_status"))
         self.assertEqual(inv.display_status, "PENDING")
 
+class ClientTransactionsViewTest(TestCase):
+    def setUp(self):
+        # Create test user
+        self.client_user = User.objects.create_user(
+            email='client@example.com',
+            password='testpass123',
+            first_name='Test',
+            last_name='Client',
+            role=User.Role.CLIENT
+        )
+        self.client_user.is_active = True
+        self.client_user.save()
+        
+        # Create test client
+        self.client = Client()
+        
+        # Store the URL for reuse
+        self.invoices_url = reverse('client_invoices')
+
+    def create_test_invoices(self):
+        # Create current (pending) invoice with Stripe URL
+        self.current_invoice = Invoice.objects.create(
+            user=self.client_user,
+            amount=50000,  # $500.00
+            status=Invoice.Status.PENDING,
+            created_at=timezone.now() - timedelta(days=1),
+            hosted_invoice_url='https://invoice.stripe.com/i/test_invoice_123' 
+        )
+        
+        # Create 12 past invoices (paid)
+        for i in range(12):
+            Invoice.objects.create(
+                user=self.client_user,
+                amount=25000 + (i * 1000),
+                status=Invoice.Status.PAID,
+                created_at=timezone.now() - timedelta(days=i+2)
+            )
+
+    # Test unauthenticated users are redirected to login
+    def test_requires_authentication(self):
+        # Try to access without logging in
+        response = self.client.get(self.invoices_url)
+        
+        # Should redirect to login page
+        expected_url = f"{reverse('login')}?next={self.invoices_url}"
+        self.assertRedirects(response, expected_url)
+        
+        # Log in and verify access works
+        self.client.login(username='client@example.com', password='testpass123')
+        response = self.client.get(self.invoices_url)
+        self.assertEqual(response.status_code, 200)
+
+    
+    # Test that only the 10 most recent past invoices are displayed
+    def test_shows_10_most_recent_transactions(self):
+        # Create test invoices
+        self.create_test_invoices()
+        
+        # Log in
+        self.client.login(username='client@example.com', password='testpass123')
+        
+        # Get the page
+        response = self.client.get(self.invoices_url)
+        
+        # Check that past_invoices is in context
+        self.assertIn('past_invoices', response.context)
+        past_invoices = response.context['past_invoices']
+        
+        # Should have exactly 10 past invoices (limited to 10)
+        self.assertEqual(len(past_invoices), 10)
+        
+        # Verify they are the most recent ones (excluding current)
+        all_past = Invoice.objects.filter(
+            user=self.client_user).exclude(id=self.current_invoice.id).order_by('-created_at')
+        
+        # The 10 most recent should match what's in context
+        self.assertEqual(
+            [inv.id for inv in past_invoices],
+            [inv.id for inv in all_past[:10]]
+        )
+
+    # Test that every transaction shows amount, date, and status
+    def test_displays_amount_date_status_for_each_transaction(self):
+        # Create test invoices
+        self.create_test_invoices()
+        
+        # Log in
+        self.client.login(username='client@example.com', password='testpass123')
+        
+        # Get the page
+        response = self.client.get(self.invoices_url)
+        
+        # First, verify the context data is correct
+        self.assertIn('current_invoice', response.context)
+        self.assertIn('past_invoices', response.context)
+        self.assertIn('stripe_url', response.context)
+        
+        current = response.context['current_invoice']
+        past_invoices = response.context['past_invoices']
+        
+        # Verify current invoice has all required fields in context
+        self.assertEqual(current.display_amount, Decimal('500.00'))
+        self.assertIsNotNone(current.created_at)
+        self.assertEqual(current.status, Invoice.Status.PENDING)
+        self.assertEqual(response.context['stripe_url'], 'https://invoice.stripe.com/i/test_invoice_123')
+        
+        # Verify past invoices have all required fields in context
+        for invoice in past_invoices:
+            expected_amount = invoice.amount / 100
+            self.assertEqual(invoice.display_amount, expected_amount)
+            self.assertIsNotNone(invoice.created_at)
+            self.assertEqual(invoice.status, Invoice.Status.PAID)
+        
+        # Check the HTML content
+        content = response.content.decode()
+        
+        # Check that current invoice data appears in HTML
+        self.assertIn('$500.00', content)
+        self.assertIn('Pending', content)
+        self.assertIn('https://invoice.stripe.com/i/test_invoice_123', content)
+        
+        # Check that a sample of past invoices data appears
+        self.assertIn('$360.00', content)  # First past invoice
+        self.assertIn('$350.00', content)  # Second past invoice
+        self.assertIn('Paid', content)  # Status appears multiple times
+    
 
 class GuestInvoiceIdValidationTests(TestCase):
     def _messages(self, response):
