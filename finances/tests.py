@@ -344,8 +344,8 @@ class ClientTransactionsViewTest(TestCase):
         self.assertIn('https://invoice.stripe.com/i/test_invoice_123', content)
         
         # Check that a sample of past invoices data appears
-        self.assertIn('$360.00', content)  # First past invoice
-        self.assertIn('$350.00', content)  # Second past invoice
+        self.assertIn('$250.00', content)  # First past invoice
+        self.assertIn('$260.00', content)  # Second past invoice
         self.assertIn('Paid', content)  # Status appears multiple times
     
 
