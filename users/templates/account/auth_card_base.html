@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+
+{% block extra_css %}
+<style>
+  .auth-card-wrap {
+    display: flex;
+    justify-content: center;
+    padding: 3rem 1rem;
+  }
+
+  .auth-card {
+    width: 100%;
+    max-width: 35rem;
+    background-color: rgba(120, 156, 148, 0.17);
+    border: none;
+    border-radius: 1rem;
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+    padding: 2rem 2.5rem;
+  }
+
+  .auth-card h1 {
+    color: #333333;
+    font-size: 1.75rem;
+    margin-bottom: 1rem;
+  }
+
+  .auth-card p,
+  .auth-card li,
+  .auth-card label,
+  .auth-card small {
+    color: #4f4f4f;
+  }
+
+  .auth-card .form-control {
+    border-radius: 1.5rem;
+  }
+
+  .auth-card .btn-primary-auth {
+    background-color: #2d7a73;
+    border-color: #2d7a73;
+    border-radius: 1.5rem;
+    color: #ffffff;
+  }
+
+  .auth-card .btn-primary-auth:hover,
+  .auth-card .btn-primary-auth:focus {
+    background-color: #24665f;
+    border-color: #24665f;
+    color: #ffffff;
+  }
+
+  .auth-links a {
+    color: #115A5C !important;
+    text-decoration: none;
+  }
+
+  .auth-help-list {
+    margin-bottom: 1.25rem;
+    padding-left: 1.25rem;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="auth-card-wrap">
+  <div class="auth-card">
+    {% block auth_body %}{% endblock %}
+  </div>
+</div>
+{% endblock %}
