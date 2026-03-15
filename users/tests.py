@@ -1,4 +1,7 @@
+import re
+
 from django.contrib.messages import get_messages
+from django.core import mail
 from django.test import TestCase, Client, override_settings
 from django.urls import reverse
 from django.contrib.sites.models import Site
@@ -40,7 +43,7 @@ class LoginErrorMessagingTests(TestCase):
         url = reverse("login")
         resp = self.client.post(url, data={"email": "client@example.com", "password": "wrongpw"}, follow=True)
         self.assertEqual(resp.status_code, 401)
-        self.assertIn("Your email and password did not match, please try again.", self._messages(resp))
+        self.assertIn("Invalid password.", self._messages(resp))
 
 
 class LoginTests(TestCase):
@@ -160,7 +163,7 @@ class LoginTests(TestCase):
         print("Assertion 2 PASS: exactly 1 error message displayed")
         self.assertEqual(
             actual_message,
-            "Your email and password did not match, please try again."
+            "Invalid password."
         )
         print("Assertion 3 PASS: error message matches expected")
         
@@ -214,7 +217,7 @@ class LoginTests(TestCase):
         print("Assertion 2 PASS: exactly 1 error message displayed")
         self.assertEqual(
             actual_message,
-            "Your email and password did not match, please try again."
+            "Invalid password."
         )
         print("Assertion 3 PASS: error message matches expected")
         
@@ -387,6 +390,180 @@ class SignupTests(TestCase):
 
 
 # Create your tests here.
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class PasswordResetFlowTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+        site = Site.objects.get_or_create(
+            id=1,
+            defaults={"name": "Test Site", "domain": "testserver"},
+        )[0]
+        social_app, _ = SocialApp.objects.get_or_create(
+            provider="google",
+            defaults={"name": "Google (test)", "client_id": "test-client-id"},
+        )
+        social_app.sites.add(site)
+
+        self.reset_url = reverse("account_reset_password")
+        self.client_user = User.objects.create_user(
+            email="client@example.com",
+            password="Password123!",
+            first_name="Client",
+            last_name="User",
+            role=User.Role.CLIENT,
+            is_active=True,
+        )
+        EmailAddress.objects.create(
+            user=self.client_user,
+            email=self.client_user.email,
+            verified=True,
+            primary=True,
+        )
+
+        self.admin_user = User.objects.create_user(
+            email="admin@example.com",
+            password="AdminPass123!",
+            first_name="Admin",
+            last_name="User",
+            role=User.Role.ADMIN,
+            is_staff=True,
+            is_active=True,
+        )
+        EmailAddress.objects.create(
+            user=self.admin_user,
+            email=self.admin_user.email,
+            verified=True,
+            primary=True,
+        )
+
+    def _extract_reset_path(self, email_body):
+        match = re.search(r"https?://testserver(?P<path>/accounts/password/reset/key/[^\s]+)", email_body)
+        self.assertIsNotNone(match)
+        return match.group("path")
+
+    def test_reset_route_is_canonical_accounts_path(self):
+        self.assertEqual(self.reset_url, "/accounts/password/reset/")
+
+    def test_login_page_links_to_password_reset(self):
+        response = self.client.get(reverse("login"))
+        self.assertContains(response, 'href="/accounts/password/reset/"', html=False)
+
+    def test_reset_request_uses_generic_success_for_unknown_email(self):
+        response = self.client.post(
+            self.reset_url,
+            {"email": "missing@example.com"},
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "account/password_reset_done.html")
+        self.assertContains(
+            response,
+            "If an active account matches that email address, we have sent password reset instructions.",
+        )
+        self.assertNotContains(response, "missing@example.com")
+
+    def test_reset_request_sends_branded_email_for_existing_account(self):
+        response = self.client.post(
+            self.reset_url,
+            {"email": self.client_user.email},
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "account/password_reset_done.html")
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertTrue(mail.outbox[0].subject.endswith("Reset your Lydia's Law password"))
+        self.assertIn("Reset password", mail.outbox[0].alternatives[0][0])
+        self.assertIn("/accounts/password/reset/key/", mail.outbox[0].body)
+
+    def test_reset_form_renders_invalid_link_state(self):
+        url = reverse(
+            "account_reset_password_from_key",
+            kwargs={"uidb36": "abc123", "key": "invalid"},
+        )
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "account/password_reset_from_key.html")
+        self.assertContains(response, "Reset link expired or invalid")
+        self.assertContains(response, reverse("account_reset_password"))
+
+    def test_reset_form_shows_server_side_password_validation_errors(self):
+        self.client.post(self.reset_url, {"email": self.client_user.email}, follow=True)
+        reset_path = self._extract_reset_path(mail.outbox[0].body)
+        get_response = self.client.get(reset_path, follow=True)
+
+        post_response = self.client.post(
+            get_response.request["PATH_INFO"],
+            {
+                "password1": "short1",
+                "password2": "short1",
+            },
+        )
+
+        self.assertEqual(post_response.status_code, 200)
+        self.assertTemplateUsed(post_response, "account/password_reset_from_key.html")
+        self.assertContains(post_response, "This password is too short")
+
+    def test_successful_password_reset_sends_notification_email(self):
+        self.client.post(self.reset_url, {"email": self.client_user.email}, follow=True)
+        reset_path = self._extract_reset_path(mail.outbox[0].body)
+
+        get_response = self.client.get(reset_path, follow=True)
+        self.assertEqual(get_response.status_code, 200)
+        self.assertTemplateUsed(get_response, "account/password_reset_from_key.html")
+
+        post_response = self.client.post(
+            get_response.request["PATH_INFO"],
+            {
+                "password1": "NewSecurePass123!",
+                "password2": "NewSecurePass123!",
+            },
+            follow=True,
+        )
+
+        self.client_user.refresh_from_db()
+        self.assertTrue(self.client_user.check_password("NewSecurePass123!"))
+        self.assertEqual(post_response.status_code, 200)
+        self.assertTemplateUsed(post_response, "account/password_reset_from_key_done.html")
+        self.assertEqual(len(mail.outbox), 2)
+        self.assertTrue(mail.outbox[1].subject.endswith("Your Lydia's Law password was changed"))
+        self.assertIn("password for your Lydia's Law account was changed", mail.outbox[1].body)
+
+    def test_client_password_change_redirects_back_to_account(self):
+        self.client.force_login(self.client_user)
+
+        response = self.client.post(
+            reverse("account_change_password"),
+            {
+                "oldpassword": "Password123!",
+                "password1": "UpdatedPass123!",
+                "password2": "UpdatedPass123!",
+            },
+        )
+
+        self.client_user.refresh_from_db()
+        self.assertRedirects(response, reverse("client_account"), fetch_redirect_response=False)
+        self.assertTrue(self.client_user.check_password("UpdatedPass123!"))
+
+    def test_admin_password_change_redirects_to_admin_dashboard(self):
+        self.client.force_login(self.admin_user)
+
+        response = self.client.post(
+            reverse("account_change_password"),
+            {
+                "oldpassword": "AdminPass123!",
+                "password1": "AdminUpdated123!",
+                "password2": "AdminUpdated123!",
+            },
+        )
+
+        self.admin_user.refresh_from_db()
+        self.assertRedirects(response, reverse("admin_dashboard"), fetch_redirect_response=False)
+        self.assertTrue(self.admin_user.check_password("AdminUpdated123!"))
 
 class AdminPermissionTests(TestCase):
     def setUp(self):
