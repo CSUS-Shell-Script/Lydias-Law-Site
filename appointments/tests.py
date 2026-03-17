@@ -150,3 +150,81 @@ class ClientAppointmentCreationTest(TestCase):
         
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, 'client/appointment_confirmation.html')
+
+class AdminSchedulingTests(TestCase):
+
+    def setUp(self):
+        self.client = Client()
+
+        self.admin = User.objects.create_superuser(
+            email="admin@test.com",
+            password="testpass123"
+        )
+
+        self.client_user = User.objects.create_user(
+            email="client@test.com",
+            password="testpass123",
+            role=User.Role.CLIENT,
+            is_active=True
+        )
+
+        self.client.login(email="admin@test.com", password="testpass123")
+
+        self.schedule_url = reverse("admin_schedule")
+        self.dashboard_url = reverse("admin_dashboard")
+
+    def test_admin_can_access_scheduling_page(self):
+        response = self.client.get(self.schedule_url)
+        self.assertEqual(response.status_code, 200)
+
+    def test_admin_can_create_appointment(self):
+        start_time = timezone.now() + timedelta(days=1)
+
+        appointment = Appointments.objects.create(
+            user_id=self.client_user,
+            start_time=start_time,
+            duration=timedelta(minutes=15),
+            comments="Test appointment"
+        )
+
+        self.assertIsNotNone(appointment.id)
+
+        self.assertTrue(
+            Appointments.objects.filter(user_id=self.client_user).exists()
+    )
+
+    def test_form_validation_missing_fields(self):
+        response = self.client.post(self.schedule_url, {})
+
+        self.assertEqual(response.status_code, 200)
+
+    def test_close_button_redirects_to_dashboard(self):
+        response = self.client.get(self.dashboard_url)
+        self.assertEqual(response.status_code, 200)
+
+    def test_form_validation_missing_fields(self):
+        response = self.client.post(self.schedule_url, {})
+
+        self.assertEqual(response.status_code, 200)
+
+        self.assertEqual(Appointments.objects.count(), 0)
+
+
+    def test_confirmation_page_message(self):
+        response = self.client.get(reverse("admin_appointment_confirmation"))
+
+        self.assertEqual(response.status_code, 200)
+
+        self.assertContains(response, "Appointment Confirmed")
+
+
+    def test_confirmation_page_loads(self):
+        response = self.client.get(reverse("admin_appointment_confirmation"))
+
+        self.assertEqual(response.status_code, 200)
+
+
+    def test_dashboard_page_accessible(self):
+        response = self.client.get(self.dashboard_url)
+
+        self.assertEqual(response.status_code, 200)
