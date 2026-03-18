@@ -122,6 +122,7 @@ ACCOUNT_LOGOUT_REDIRECT_URL = "home"
 ACCOUNT_LOGIN_REDIRECT_URL = '/client/dashboard/'
 ACCOUNT_ADAPTER = "users.adapter.MyAccountAdapter"
 SOCIALACCOUNT_ADAPTER = "users.adapter.CustomSocialAccountAdapter"
+ACCOUNT_EMAIL_NOTIFICATIONS = True
 
 # Select Custom User
 AUTH_USER_MODEL = "users.User"

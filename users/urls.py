@@ -1,4 +1,4 @@
-from django.urls import include, path
+from django.urls import path
 from . import views
 from .views import client_dashboard
 
@@ -9,7 +9,6 @@ urlpatterns = [
     path("signup/", views.signup, name="signup"),
     path("confirmation-page/", views.confirmation_page, name="confirmation_page"),
     path("client/dashboard", client_dashboard, name="client_dashboard"),
-    path("accounts/", include("allauth.urls")),
     path("test-500/", views.trigger_500), 
  #   path('dashboard/', views.client_dashboard, name='client_dashboard'),
 
