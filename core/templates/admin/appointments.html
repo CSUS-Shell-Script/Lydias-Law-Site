@@ -87,7 +87,7 @@
   <!-- Appointment Cards -->
   {% for appt in page_obj %}
     {% with invitee=appt.invitees.all.0 %}
-    <div class="appt-card d-flex align-items-center gap-4">
+    <div class="appt-card d-flex align-items-center gap-4" data-appt-card="{{ appt.pk }}">
 
       <!-- Date -->
       <div class="text-center" style="min-width: 3.5rem;">
@@ -146,13 +146,22 @@
           {% elif appt.status == 'PENDING' %}bg-warning text-dark
           {% elif appt.status == 'CANCELLED' %}bg-danger
           {% elif appt.status == 'COMPLETED' %}bg-info
-          {% else %}bg-secondary{% endif %}">
+          {% else %}bg-secondary{% endif %}"
+          data-status-badge="{{ appt.pk }}">
           {{ appt.get_status_display }}
         </span>
       </div>
 
-      <!-- View link (cancel button placeholder — LLW-63) -->
-      <div class="ms-auto d-flex gap-2 align-items-center">
+      <!-- Action buttons -->
+      <div class="ms-auto d-flex gap-2 align-items-center" data-actions="{{ appt.pk }}">
+        {% if appt.status == 'PENDING' %}
+          <button type="button"
+                  class="btn btn-sm btn-outline-success rounded-pill px-3"
+                  data-accept-btn="{{ appt.pk }}"
+                  data-accept-url="{% url 'admin_appointment_accept' appt.pk %}">
+            Accept
+          </button>
+        {% endif %}
         {% if appt.status == 'PENDING' or appt.status == 'CONFIRMED' %}
           <button type="button"
                   class="btn btn-sm btn-outline-danger rounded-pill px-3"
@@ -172,23 +181,27 @@
       <div class="modal fade" id="cancelModal-{{ appt.pk }}" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
           <div class="modal-content">
-            <form method="post" action="{% url 'admin_appointment_cancel' appt.pk %}">
-              {% csrf_token %}
-              <input type="hidden" name="next" value="{{ request.get_full_path }}">
-              <div class="modal-header">
-                <h5 class="modal-title">Cancel appointment?</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-              </div>
-              <div class="modal-body">
-                <p class="mb-2 text-muted">This will set the appointment status to <strong>Cancelled</strong>.</p>
-                <label for="reason-{{ appt.pk }}" class="form-label">Cancellation reason</label>
-                <textarea id="reason-{{ appt.pk }}" name="reason" class="form-control" rows="3" required></textarea>
-              </div>
-              <div class="modal-footer">
-                <button type="button" class="btn btn-outline-secondary rounded-pill px-4" data-bs-dismiss="modal">Back</button>
-                <button type="submit" class="btn text-white rounded-pill px-4" style="background-color: #b02a37;">Confirm cancel</button>
-              </div>
-            </form>
+            <div class="modal-header">
+              <h5 class="modal-title">Cancel appointment?</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+              <p class="mb-2 text-muted">This will set the appointment status to <strong>Cancelled</strong>.</p>
+              <label for="reason-{{ appt.pk }}" class="form-label">Cancellation reason</label>
+              <textarea id="reason-{{ appt.pk }}" class="form-control" rows="3"
+                        data-reason-field="{{ appt.pk }}"></textarea>
+              <div class="text-danger small mt-1" data-cancel-error="{{ appt.pk }}" style="display:none;"></div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-outline-secondary rounded-pill px-4" data-bs-dismiss="modal">Back</button>
+              <button type="button"
+                      class="btn text-white rounded-pill px-4"
+                      style="background-color: #b02a37;"
+                      data-confirm-cancel="{{ appt.pk }}"
+                      data-cancel-url="{% url 'admin_appointment_cancel' appt.pk %}">
+                Confirm cancel
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -223,4 +236,146 @@
   {% endif %}
 
 </div>
+
+<script>
+(function () {
+  'use strict';
+
+  function getCsrfToken() {
+    var name = 'csrftoken';
+    var cookies = document.cookie.split(';');
+    for (var i = 0; i < cookies.length; i++) {
+      var c = cookies[i].trim();
+      if (c.startsWith(name + '=')) {
+        return decodeURIComponent(c.substring(name.length + 1));
+      }
+    }
+    return '';
+  }
+
+  function updateCardToStatus(apptId, status, statusDisplay) {
+    // Update badge
+    var badge = document.querySelector('[data-status-badge="' + apptId + '"]');
+    if (badge) {
+      badge.className = 'badge rounded-pill';
+      if (status === 'CONFIRMED') badge.classList.add('bg-success');
+      else if (status === 'CANCELLED') badge.classList.add('bg-danger');
+      else if (status === 'PENDING') { badge.classList.add('bg-warning'); badge.classList.add('text-dark'); }
+      else if (status === 'COMPLETED') badge.classList.add('bg-info');
+      else badge.classList.add('bg-secondary');
+      badge.textContent = statusDisplay;
+    }
+
+    // Remove action buttons (terminal or status change removes actions)
+    var actions = document.querySelector('[data-actions="' + apptId + '"]');
+    if (actions) {
+      // Keep only the View link
+      var viewLink = actions.querySelector('a');
+      actions.innerHTML = '';
+      if (viewLink) actions.appendChild(viewLink);
+    }
+  }
+
+  // Accept buttons
+  document.querySelectorAll('[data-accept-btn]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var apptId = btn.dataset.acceptBtn;
+      var url = btn.dataset.acceptUrl;
+      btn.disabled = true;
+      btn.textContent = 'Accepting…';
+
+      fetch(url, {
+        method: 'POST',
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest',
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: 'csrfmiddlewaretoken=' + encodeURIComponent(getCsrfToken()),
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (data.success) {
+            updateCardToStatus(apptId, data.status, data.status_display);
+          } else {
+            btn.disabled = false;
+            btn.textContent = 'Accept';
+            alert(data.error || 'An error occurred.');
+          }
+        })
+        .catch(function () {
+          btn.disabled = false;
+          btn.textContent = 'Accept';
+          alert('Network error. Please try again.');
+        });
+    });
+  });
+
+  // Cancel confirm buttons
+  document.querySelectorAll('[data-confirm-cancel]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var apptId = btn.dataset.confirmCancel;
+      var url = btn.dataset.cancelUrl;
+      var reasonField = document.querySelector('[data-reason-field="' + apptId + '"]');
+      var errorDiv = document.querySelector('[data-cancel-error="' + apptId + '"]');
+      var reason = reasonField ? reasonField.value.trim() : '';
+
+      errorDiv.style.display = 'none';
+      errorDiv.textContent = '';
+
+      if (!reason) {
+        errorDiv.textContent = 'Cancellation reason is required.';
+        errorDiv.style.display = 'block';
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Cancelling…';
+
+      fetch(url, {
+        method: 'POST',
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest',
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: 'csrfmiddlewaretoken=' + encodeURIComponent(getCsrfToken()) +
+              '&reason=' + encodeURIComponent(reason),
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (data.success) {
+            var modal = bootstrap.Modal.getInstance(
+              document.getElementById('cancelModal-' + apptId)
+            );
+            if (modal) modal.hide();
+            updateCardToStatus(apptId, data.status, data.status_display);
+          } else {
+            btn.disabled = false;
+            btn.textContent = 'Confirm cancel';
+            errorDiv.textContent = data.error || 'An error occurred.';
+            errorDiv.style.display = 'block';
+          }
+        })
+        .catch(function () {
+          btn.disabled = false;
+          btn.textContent = 'Confirm cancel';
+          errorDiv.textContent = 'Network error. Please try again.';
+          errorDiv.style.display = 'block';
+        });
+    });
+  });
+
+  // Reset modal state when closed
+  document.querySelectorAll('.modal').forEach(function (modalEl) {
+    modalEl.addEventListener('hidden.bs.modal', function () {
+      var apptId = modalEl.id.replace('cancelModal-', '');
+      var reasonField = modalEl.querySelector('[data-reason-field]');
+      var errorDiv = modalEl.querySelector('[data-cancel-error]');
+      var btn = modalEl.querySelector('[data-confirm-cancel]');
+      if (reasonField) reasonField.value = '';
+      if (errorDiv) { errorDiv.style.display = 'none'; errorDiv.textContent = ''; }
+      if (btn) { btn.disabled = false; btn.textContent = 'Confirm cancel'; }
+    });
+  });
+}());
+</script>
 {% endblock %}
