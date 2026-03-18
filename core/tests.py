@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from appointments.models import Appointments, Invitee
 from users.models import User
+from django.contrib.auth import get_user_model
 
 
 
@@ -467,3 +468,25 @@ class AdminClientsViewTest(TestCase):
         self.assertEqual(len(response.context['page_obj']), 1)
         self.assertEqual(response.context['page_obj'][0].first_name, 'John')
         self.assertEqual(response.context['page_obj'][0].retainer_balance, 100)
+
+# Test For Public Nav Bar
+class PublicNavbarTests(TestCase):
+    def test_public_nav_contains_expected_links(self):
+       # Access public page -> home
+        response = self.client.get(reverse('home'))
+
+        # Nav Contains logo linking to home page
+        self.assertContains(response, 'href="/"')
+
+        # Nav contains links to diff pages -> about, payment, contact, login ...
+        self.assertContains(response, 'Practice Areas')
+        self.assertContains(response, 'About')
+        self.assertContains(response, 'Contact')
+        self.assertContains(response, 'Privacy Policy')
+        self.assertContains(response, 'Payment')
+        self.assertContains(response, 'Login')
+        
+        # Nav does NOT show dashboard, logout, transaction history
+        self.assertNotContains(response, 'Dashboard')
+        self.assertNotContains(response, 'Logout')
+        self.assertNotContains(response, 'Transaction History')    

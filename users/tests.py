@@ -384,11 +384,9 @@ class SignupTests(TestCase):
         print("Assertion 4 PASS: email == 'john@example.com'")
 
 
-
-
-# Create your tests here.
-
+# *** 403 Permission Denied Tests ***
 class AdminPermissionTests(TestCase):
+    # Setup different user types
     def setUp(self):
         self.url = "/administrator/dashboard/"
 
@@ -397,26 +395,32 @@ class AdminPermissionTests(TestCase):
             password="Password1!"
         )
         self.superuser = User.objects.create_superuser(
-            email="admin@unitTest.com",
+            email="admin@unitTest.com", 
             password="Pass12345!"
         )
-
+    # Test for guest user -> not logged in 
+    # Should get 403 page
     def test_guest_user_gets_403(self):
         resp = self.client.get(self.url)
         self.assertEqual(resp.status_code, 403)
-
+        
+    # Test for client user -> logged in
+    # Should get 403 page
     def test_client_user_gets_403(self):
         self.client.login(email="client@unitTest.com", password="Password1!")
         resp = self.client.get(self.url)
         self.assertEqual(resp.status_code, 403)
 
+    # Test for admin user -> logged in
+    # Should NOT get 403 page
     def test_superuser_gets_200(self):
         self.client.login(email="admin@unitTest.com", password="Pass12345!")
         resp = self.client.get(self.url)
         self.assertEqual(resp.status_code, 200)
         self.assertTemplateUsed(resp, "admin/dashboard.html")
 
-    def test_403_uses_custom_template(self):
+    # Tests if custom 403 template is rendered instead of Django default
+    def test_403_uses_custom_tempate(self):
         self.client.login(email="client@unitTest.com", password="Password1!")
         resp = self.client.get(self.url)
         self.assertEqual(resp.status_code, 403)
@@ -433,8 +437,8 @@ class PageNotFoundTests(TestCase):
     def test_404_uses_custom_template(self):
         resp = self.client.get("/fake-page-test/")
         self.assertTemplateUsed(resp, "404.html")
-from django.test import TestCase, override_settings, Client
-
+        
+        
 class InternalServerErrorTests(TestCase):
 
     @override_settings(DEBUG=False)
