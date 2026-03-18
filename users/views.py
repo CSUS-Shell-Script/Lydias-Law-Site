@@ -22,6 +22,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.validators import validate_email
 from sitecontent.views import get_latest_website_content
 from core.decorators import superuser_required
+import re
 
 # Directs to login page
 def login(r): 
@@ -154,14 +155,24 @@ def signup(r):
             messages.error(r, "An account with that email already exists.")
             return render(r, 'users/signup.html', {"form_data": form_data})
 
-        # Create the user with a **real** password
+        # Validate phone number format (only functions on basic US format: 10 digits, with or without dashes).
+        # If international numbers are needed, this will need to be adjusted to account for that.
+        phone_number_digits = re.sub(r'\D', '', phone_number)
+        if len(phone_number_digits) != 10:
+            messages.error(r, "Please enter a valid phone number.")
+            return render(r, 'users/signup.html', {"form_data": form_data})
+
+        # Normalize phone number to digits only for storage.
+        phone_number = phone_number_digits
+
+        # Create the user with a "real" password.
         user = User.objects.create_user(
             email=email,
             password=password1,
             first_name=first_name,
             last_name=last_name,
             phone_number=phone_number,
-            role=User.Role.CLIENT # Change new user to client role.
+            role=User.Role.GUEST # New user has guest role until email verified.
         )
 
         # Create Email Address Object.
