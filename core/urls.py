@@ -50,6 +50,7 @@ urlpatterns = [
     path("administrator/appointments/", views.admin_appointments, name="admin_appointments"),
     path("administrator/appointments/<int:pk>/", views.admin_appointment_detail, name="admin_appointment_detail"),
     path("administrator/appointments/<int:pk>/cancel/", views.admin_appointment_cancel, name="admin_appointment_cancel"),
+    path("administrator/appointments/<int:pk>/accept/", views.admin_appointment_accept, name="admin_appointment_accept"),
     path("administrator/appointments/<int:pk>/status/", views.admin_appointment_update_status, name="admin_appointment_update_status"),
     path("logout/", users_logout_view, name="logout"),
     path('accounts/confirm-email/<str:key>/', email_confirm_view, name='account_confirm_email'),
