@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from sitecontent.models import WebsiteContent
 from appointments.models import Appointments, Invitee
+from sitecontent.models import FAQItem, WebsiteContent
 from users.models import User
 from finances.models import Invoice
 
@@ -642,3 +643,174 @@ class AdminClientsViewTest(TestCase):
         self.assertEqual(len(response.context['page_obj']), 1)
         self.assertEqual(response.context['page_obj'][0].first_name, 'John')
         self.assertEqual(response.context['page_obj'][0].retainer_balance, 100)
+
+
+class AdminEditorFAQTests(TestCase):
+    def setUp(self):
+        # Avoid migration-seeded FAQs so POST assertions match a controlled row set.
+        FAQItem.objects.all().delete()
+        self.admin = User.objects.create_user(
+            email="faqadmin@example.com",
+            password="pw123456",
+            first_name="Admin",
+            last_name="User",
+            role=User.Role.ADMIN,
+            is_staff=True,
+            is_active=True,
+        )
+        self.client_user = User.objects.create_user(
+            email="faqclient@example.com",
+            password="pw123456",
+            first_name="Client",
+            last_name="User",
+            role=User.Role.CLIENT,
+            is_active=True,
+        )
+        self.content = WebsiteContent.objects.create(
+            frontPageHeader="Header",
+            frontPageDescription="<p>Desc</p>",
+            nameTitle="Name",
+            aboutMeDescription="<p>About</p>",
+            officeLocation="Office",
+            stepParentAdoptionDescription="<p>S</p>",
+            adultAdoptionDescription="<p>A</p>",
+            guardianshipDescription="<p>G</p>",
+            guardianshipToAdoptionDescription="<p>GA</p>",
+            independentAdoptionDescription="<p>I</p>",
+            footerDescription="<p>Footer</p>",
+        )
+        self.existing_faq = FAQItem.objects.create(
+            question="Existing question",
+            answer="<p>Existing answer</p>",
+            display_order=1,
+            is_active=True,
+        )
+        self.url = reverse("admin_editor")
+
+    def _valid_content_payload(self):
+        return {
+            "frontPageHeader": "Header",
+            "frontPageDescription": "<p>Desc</p>",
+            "nameTitle": "Name",
+            "aboutMeDescription": "<p>About</p>",
+            "officeLocation": "Office",
+            "stepParentAdoptionDescription": "<p>S</p>",
+            "adultAdoptionDescription": "<p>A</p>",
+            "guardianshipDescription": "<p>G</p>",
+            "guardianshipToAdoptionDescription": "<p>GA</p>",
+            "independentAdoptionDescription": "<p>I</p>",
+            "footerDescription": "<p>Footer</p>",
+        }
+
+    def _faq_formset_payload(self, rows):
+        initial_forms = sum(1 for r in rows if r.get("id"))
+        payload = {
+            "faq-TOTAL_FORMS": str(len(rows)),
+            "faq-INITIAL_FORMS": str(initial_forms),
+            "faq-MIN_NUM_FORMS": "0",
+            "faq-MAX_NUM_FORMS": "1000",
+        }
+        for i, row in enumerate(rows):
+            payload[f"faq-{i}-id"] = str(row.get("id", ""))
+            payload[f"faq-{i}-question"] = row.get("question", "")
+            payload[f"faq-{i}-answer"] = row.get("answer", "")
+            payload[f"faq-{i}-display_order"] = row.get("display_order", "")
+            payload[f"faq-{i}-is_active"] = "on" if row.get("is_active") else ""
+            payload[f"faq-{i}-DELETE"] = "on" if row.get("DELETE") else ""
+        return payload
+
+    def test_editor_requires_admin_permissions(self):
+        self.client.force_login(self.client_user)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 403)
+
+    def test_editor_get_includes_faq_formset(self):
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("faq_formset", response.context)
+
+    def test_editor_post_creates_updates_deletes_faqs(self):
+        self.client.force_login(self.admin)
+        payload = {}
+        payload.update(self._valid_content_payload())
+        payload.update(
+            self._faq_formset_payload(
+                [
+                    {
+                        "id": self.existing_faq.id,
+                        "question": "Updated question",
+                        "answer": "<p>Updated answer</p>",
+                        "display_order": "2",
+                        "is_active": True,
+                    },
+                    {
+                        "question": "New question",
+                        "answer": "<p>New answer</p>",
+                        "display_order": "1",
+                        "is_active": True,
+                    },
+                ]
+            )
+        )
+
+        response = self.client.post(self.url, payload, follow=True)
+        self.assertEqual(response.status_code, 200)
+
+        questions = list(FAQItem.objects.order_by("display_order", "id").values_list("question", flat=True))
+        self.assertEqual(questions, ["New question", "Updated question"])
+
+    def test_editor_post_rejects_partial_faq_row(self):
+        self.client.force_login(self.admin)
+        payload = {}
+        payload.update(self._valid_content_payload())
+        payload.update(
+            self._faq_formset_payload(
+                [
+                    {
+                        "id": self.existing_faq.id,
+                        "question": "Existing question",
+                        "answer": "<p>Existing answer</p>",
+                        "display_order": "1",
+                        "is_active": True,
+                    },
+                    {
+                        "question": "Missing answer question",
+                        "answer": "",
+                        "display_order": "2",
+                        "is_active": True,
+                    },
+                ]
+            )
+        )
+        response = self.client.post(self.url, payload)
+        self.assertEqual(response.status_code, 200)
+        self.assertFormError(
+            response.context["faq_formset"].forms[1],
+            "answer",
+            "Answer is required when a question is provided.",
+        )
+
+    def test_editor_post_deletes_faq_marked_for_removal(self):
+        """DELETE checkbox removes row; save(commit=False) must run before deleted_objects (view order)."""
+        self.client.force_login(self.admin)
+        faq_id = self.existing_faq.id
+        payload = {}
+        payload.update(self._valid_content_payload())
+        payload.update(
+            self._faq_formset_payload(
+                [
+                    {
+                        "id": faq_id,
+                        "question": "Existing question",
+                        "answer": "<p>Existing answer</p>",
+                        "display_order": "1",
+                        "is_active": True,
+                        "DELETE": True,
+                    },
+                ]
+            )
+        )
+        response = self.client.post(self.url, payload, follow=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(FAQItem.objects.filter(pk=faq_id).exists())
