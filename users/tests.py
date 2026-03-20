@@ -548,11 +548,6 @@ class SignupTests(TestCase):
         print("Assertion 2 PASS: primary == True")
 
 
-
-
-# Create your tests here.
-
-
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
 class PasswordResetFlowTests(TestCase):
     def setUp(self):
@@ -726,7 +721,9 @@ class PasswordResetFlowTests(TestCase):
         self.assertRedirects(response, reverse("admin_dashboard"), fetch_redirect_response=False)
         self.assertTrue(self.admin_user.check_password("AdminUpdated123!"))
 
+# *** 403 Permission Denied Tests ***
 class AdminPermissionTests(TestCase):
+    # Setup different user types
     def setUp(self):
         self.url = "/administrator/dashboard/"
 
@@ -739,6 +736,8 @@ class AdminPermissionTests(TestCase):
             password="Pass12345!"
         )
 
+    # Test for guest user -> not logged in 
+    # Should get 403 page
     def test_guest_user_gets_403(self):
         print("\nTEST: Guest user accessing admin dashboard")
         print("EXPECTED: Returns 403 Forbidden")
@@ -749,6 +748,8 @@ class AdminPermissionTests(TestCase):
         self.assertEqual(resp.status_code, 403)
         print("Assertion 1 PASS: status_code == 403")
 
+    # Test for client user -> logged in
+    # Should get 403 page
     def test_client_user_gets_403(self):
         print("\nTEST: Client user accessing admin dashboard")
         print("EXPECTED: Returns 403 Forbidden")
@@ -760,6 +761,8 @@ class AdminPermissionTests(TestCase):
         self.assertEqual(resp.status_code, 403)
         print("Assertion 1 PASS: status_code == 403")
 
+    # Test for admin user -> logged in
+    # Should NOT get 403 page
     def test_superuser_gets_200(self):
         print("\nTEST: Superuser accessing admin dashboard")
         print("EXPECTED: Returns 200 OK and uses admin/dashboard.html template")
@@ -773,7 +776,8 @@ class AdminPermissionTests(TestCase):
         print("Assertion 1 PASS: status_code == 200")
         self.assertTemplateUsed(resp, "admin/dashboard.html")
         print("Assertion 2 PASS: template used is admin/dashboard.html")
-
+        
+    # Tests if custom 403 template is rendered instead of Django default
     def test_403_uses_custom_template(self):
         print("\nTEST: Client user accessing admin dashboard gets 403 with custom template")
         print("EXPECTED: Returns 403 Forbidden and uses 403.html template")
@@ -787,7 +791,7 @@ class AdminPermissionTests(TestCase):
         print("Assertion 1 PASS: status_code == 403")
         self.assertTemplateUsed(resp, "403.html")
         print("Assertion 2 PASS: template used is 403.html")
-
+        
 # *** 404 Page Not Found Tests ***
 class PageNotFoundTests(TestCase):
     # Test that non existant page returns 404
@@ -812,7 +816,6 @@ class PageNotFoundTests(TestCase):
         
         self.assertTemplateUsed(resp, "404.html")
         print("Assertion 1 PASS: template used is 404.html")
-from django.test import TestCase, override_settings, Client
 
 class InternalServerErrorTests(TestCase):
 

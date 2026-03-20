@@ -42,9 +42,6 @@
 </section>
 
 
-<!-- FAQ Accordion -->
-<!-- HARD CODED WILL CHANGE; Source: https://getbootstrap.com/docs/5.0/components/accordion/ -->
-    
 <!-- FAQ Header -->
 <div class="green-bar my-6">
     <h2 class="text-center mb-0">Frequently Asked Questions</h2>
@@ -53,68 +50,32 @@
 <!-- Accordion Dropdown -->
 <section>
   <div class="my-5 mx-5">
+      {% if faqs %}
       <div class="accordion" id="faqAccordion">
-
-          <!-- Question 1 -->
-        <div class="accordion-item">
-            <h2 class="accordion-header" id="panelsStayOpen-headingOne">
-                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#panelsStayOpen-collapseOne" aria-expanded="false" aria-controls="panelsStayOpen-collapseOne">
-                    How long is the adoption process?
-                </button>
-            </h2>
-            <div id="panelsStayOpen-collapseOne" class="accordion-collapse collapse" aria-labelledby="panelsStayOpen-headingOne">
-                <div class="accordion-body">
-                The adoption process can vary depending on the type of adoption . Foster care adoption tends to be the least lengthy at between 6 to 18 month. Domestic infant adoption can take from 9 to 12 moths or even a couple of years. The lengthiest is usually international adoption, which can take multiple years to finalize.
-            </div>
-        </div>
-
-          <!-- Question 2 -->
+          {% for faq in faqs %}
           <div class="accordion-item">
-              <h2 class="accordion-header" id="panelsStayOpen-headingTwo">
-                  <button class="accordion-button collapsed" type="button" 
-                          data-bs-toggle="collapse" data-bs-target="#panelsStayOpen-collapseTwo" 
-                          aria-expanded="false" aria-controls="panelsStayOpen-collapseTwo">
-                      What is the cost of adopting? Do I need a lawyer?
+              <h2 class="accordion-header" id="faq-heading-{{ forloop.counter }}">
+                  <button class="accordion-button collapsed" type="button"
+                          data-bs-toggle="collapse"
+                          data-bs-target="#faq-collapse-{{ forloop.counter }}"
+                          aria-expanded="false"
+                          aria-controls="faq-collapse-{{ forloop.counter }}">
+                      {{ faq.question }}
                   </button>
               </h2>
-              <div id="panelsStayOpen-collapseTwo" class="accordion-collapse collapse" aria-labelledby="panelsStayOpen-headingTwo">
+              <div id="faq-collapse-{{ forloop.counter }}"
+                   class="accordion-collapse collapse"
+                   aria-labelledby="faq-heading-{{ forloop.counter }}">
                   <div class="accordion-body">
-                    The cost of adoption can vary depending on the type—private, agency, or independent. A lawyer helps ensure all legal requirements are met and protects your rights throughout the process.                  </div>
-              </div>
-          </div>
-
-          <!-- Question 3 -->
-          <div class="accordion-item">
-              <h2 class="accordion-header" id="panelsStayOpen-headingThree">
-                  <button class="accordion-button collapsed" type="button" 
-                          data-bs-toggle="collapse" data-bs-target="#panelsStayOpen-collapseThree" 
-                          aria-expanded="false" aria-controls="panelsStayOpen--collapseThree">
-                      What is the difference between adoption and guardianship?
-                  </button>
-              </h2>
-              <div id="panelsStayOpen-collapseThree" class="accordion-collapse collapse" aria-labelledby="panelsStayOpen-headingThree">
-                  <div class="accordion-body">
-                    Adoption permanently transfers parental rights to the adoptive parent, while guardianship is typically temporary and can be ended by the court. Adoption creates a lifelong legal parent-child relationship; guardianship does not.                  </div>
-              </div>
-          </div>
-
-          <!-- Question 4 -->
-          <div class="accordion-item">
-              <h2 class="accordion-header" id="panelsStayOpen-headingFour">
-                  <button class="accordion-button collapsed" type="button" 
-                          data-bs-toggle="collapse" data-bs-target="#panelsStayOpen-collapseFour" 
-                          aria-expanded="false" aria-controls="panelsStayOpen-collapseFour">
-                      What are the different types of adoptions?
-                  </button>
-              </h2>
-              <div id="panelsStayOpen-collapseFour" class="accordion-collapse collapse" aria-labelledby="panelsStayOpen-headingFour">
-                  <div class="accordion-body">
-                      Common types include agency, independent (private), stepparent, relative (kinship), and international adoptions. Each has its own legal process, requirements, and level of court involvement.
+                      {{ faq.answer|safe }}
                   </div>
               </div>
           </div>
-
+          {% endfor %}
       </div>
+      {% else %}
+      <p class="text-center">No frequently asked questions are available right now.</p>
+      {% endif %}
   </div>
   
   <!--Google Map-->
