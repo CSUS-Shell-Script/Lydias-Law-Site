@@ -4,7 +4,18 @@ from django.urls import reverse
 from sitecontent.models import FAQItem, WebsiteContent
 
 
-class FAQItemModelTests(TestCase):
+class FAQTestCase(TestCase):
+    """
+    sitecontent.0005_faqitem seeds initial FAQ rows. Tests that assume an empty
+    table or only their own rows must clear FAQItem before running.
+    """
+
+    def setUp(self):
+        super().setUp()
+        FAQItem.objects.all().delete()
+
+
+class FAQItemModelTests(FAQTestCase):
     def test_ordering_uses_display_order_then_id(self):
         second = FAQItem.objects.create(question="Q2", answer="<p>A2</p>", display_order=2, is_active=True)
         first = FAQItem.objects.create(question="Q1", answer="<p>A1</p>", display_order=1, is_active=True)
@@ -14,8 +25,9 @@ class FAQItemModelTests(TestCase):
         self.assertEqual(ordered_ids, [first.id, also_first.id, second.id])
 
 
-class HomeFAQRenderingTests(TestCase):
+class HomeFAQRenderingTests(FAQTestCase):
     def setUp(self):
+        super().setUp()
         WebsiteContent.objects.create(
             frontPageHeader="Header",
             frontPageDescription="<p>Description</p>",
