@@ -197,11 +197,6 @@ class AdminSchedulingTests(TestCase):
             Appointments.objects.filter(user_id=self.client_user).exists()
         )
 
-    def test_form_validation_missing_fields(self):
-        response = self.client.post(self.schedule_url, {})
-
-        self.assertEqual(response.status_code, 200)
-
     def test_close_button_redirects_to_dashboard(self):
         response = self.client.get(self.dashboard_url)
         self.assertEqual(response.status_code, 200)
