@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from sitecontent.models import WebsiteContent
 from appointments.models import Appointments, Invitee
+from sitecontent.models import FAQItem, WebsiteContent
 from users.models import User
 from django.contrib.auth import get_user_model
 from finances.models import Invoice

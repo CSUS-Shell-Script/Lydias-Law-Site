@@ -6,7 +6,7 @@ Ensures the footer renders dynamically on every page
 """
 def footer_content(request):
     try:
-        content = WebsiteContent.objects.order_by('created_at').first()
+        content = WebsiteContent.objects.order_by("-versionNumber").first()
     except Exception:
         content = None
         
