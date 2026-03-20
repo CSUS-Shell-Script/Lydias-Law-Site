@@ -123,6 +123,85 @@ class PublicNavbarTests(TestCase):
         self.assertNotContains(response, 'Logout')
         self.assertNotContains(response, 'Transaction History')    
 
+# Template Content Verification Test - LLW 301
+class TemplateContentVerificationTest(TestCase):
+    def setUp(self):
+        self.client = Client()
+
+        # Required by home, practice area, and about views
+        self.content = WebsiteContent.objects.create(
+            frontPageHeader="Test Header",
+            frontPageDescription="Test Description",
+        )
+
+        # 4 FAQ pairs 
+        FAQItem.objects.create(question="Question 1", answer="Answer 1", display_order=1, is_active=True)
+        FAQItem.objects.create(question="Question 2", answer="Answer 2", display_order=2, is_active=True)
+        FAQItem.objects.create(question="Question 3", answer="Answer 3", display_order=3, is_active=True)
+        FAQItem.objects.create(question="Question 4", answer="Answer 4", display_order=4, is_active=True)
+
+    # Home page
+    def test_home_page_contains_faq_section(self):
+        response = self.client.get(reverse("home"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Frequently Asked Questions")
+        self.assertContains(response, "faqAccordion")
+
+    def test_home_page_conatins_four_faq_pairs(self):
+        response = self.client.get(reverse("home"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Question 1")
+        self.assertContains(response, "Answer 1")
+        self.assertContains(response, "Question 2")
+        self.assertContains(response, "Answer 2")
+        self.assertContains(response, "Question 3")
+        self.assertContains(response, "Answer 3")
+        self.assertContains(response, "Question 4")
+        self.assertContains(response, "Answer 4")
+    
+    def test_home_page_contains_services_list_with_practice_area_links(self):
+        response = self.client.get(reverse("home"))
+        self.assertEqual(response.status_code, 200)
+
+        # 5 Service img buttons link to practice areas
+        self.assertContains(response, "Step-Parent Adoption")
+        self.assertContains(response, "Adult Adoption")
+        self.assertContains(response, "Guardianship")
+        self.assertContains(response, "Guardianship to Adoption")
+        self.assertContains(response, "Independent Adoption")
+        self.assertContains(response, "practice-areas")
+
+    def test_home_page_contains_map_section(self):
+        response = self.client.get(reverse("home"))
+        self.assertEqual(response.status_code, 200)
+
+        # Google maps iframe is always present regardless of API key value
+        self.assertContains(response, "google.com/maps/embed")
+        self.assertContains(response, "601+University+Ave+Sacramento+CA")        
+
+    # About Page
+    def test_about_page_loads(self):
+        response = self.client.get(reverse("about"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "About Lydia A. Suprun")
+
+    def test_about_page_has_image_placeholder(self):
+        response = self.client.get(reverse("about"))
+        # Photo is commented out = verify img container is present
+        response = self.client.get(reverse("about"))
+        self.assertContains(response, "about-image")
+
+    def test_about_page_contains_linkedin_link(self):
+        response = self.client.get(reverse("about"))
+        self.assertContains(response, "linkedin.com/in/lydia-suprun")
+
+    # Practice Areas Page
+    def test_practice_areas_page_contains_contact_links(self):
+        response = self.client.get(reverse("practice_areas"))
+        self.assertEqual(response.status_code, 200)
+        # 'Book Appointment' button links to contact page
+        self.assertContains(response, reverse("contact"))
+        self.assertContains(response, "Book Appointment")
 
 ############################### Client pages ###############################
 
