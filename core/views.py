@@ -2,6 +2,7 @@
 # essentialy: user interactions -> tangible responses
 
 from django.shortcuts import render, HttpResponse, redirect, get_object_or_404
+from django.http import JsonResponse
 from django.urls import reverse
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
@@ -239,6 +240,7 @@ def admin_appointment_detail(request, pk):
 @require_POST
 @superuser_required
 def admin_appointment_cancel(request, pk):
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
 
     appointment = get_object_or_404(
         Appointments.objects.prefetch_related("invitees"),
@@ -246,11 +248,15 @@ def admin_appointment_cancel(request, pk):
     )
 
     if appointment.status not in (Appointments.Status.PENDING, Appointments.Status.CONFIRMED):
+        if is_ajax:
+            return JsonResponse({"error": "Only Pending or Confirmed appointments can be cancelled."}, status=400)
         messages.warning(request, "Only Pending or Confirmed appointments can be cancelled.")
         return redirect(request.POST.get("next") or reverse("admin_appointment_detail", args=[pk]))
 
     reason = (request.POST.get("reason") or "").strip()
     if not reason:
+        if is_ajax:
+            return JsonResponse({"error": "Cancellation reason is required."}, status=400)
         messages.error(request, "Cancellation reason is required.")
         return redirect(request.POST.get("next") or reverse("admin_appointment_detail", args=[pk]))
 
@@ -263,34 +269,47 @@ def admin_appointment_cancel(request, pk):
     appointment.invitees.update(canceled=True, cancellation_reason=reason)
 
     # Best-effort Calendly cancellation (feature-flagged / offline-safe)
+    calendly_warning = None
     if appointment.calendly_event_uri:
         try:
             from appointments.calendly import cancel_scheduled_event, calendly_api_enabled
 
             if not calendly_api_enabled():
-                messages.info(
-                    request,
-                    "Calendly cancellation skipped (site not live yet — expected).",
-                )
+                calendly_warning = "Calendly cancellation skipped (site not live yet — expected)."
             else:
                 ok = cancel_scheduled_event(
                     calendly_event_uri=appointment.calendly_event_uri,
                     cancellation_reason=reason,
                 )
                 if not ok:
-                    messages.warning(
-                        request,
-                        "Appointment cancelled locally. Calendly cancellation failed (best effort).",
-                    )
+                    calendly_warning = "Calendly cancellation failed (best effort)."
         except Exception:
-            # Never block local cancellation on Calendly issues
-            messages.warning(
-                request,
-                "Appointment cancelled locally. Calendly cancellation was skipped/failed (expected if site isn't live yet).",
-            )
+            calendly_warning = "Calendly cancellation was skipped/failed (expected if site isn't live yet)."
 
+    if is_ajax:
+        data = {"success": True, "status": "CANCELLED", "status_display": "Cancelled"}
+        if calendly_warning:
+            data["warning"] = calendly_warning
+        return JsonResponse(data)
+
+    if calendly_warning:
+        messages.warning(request, f"Appointment cancelled locally. {calendly_warning}")
     messages.success(request, "Appointment cancelled.")
     return redirect(request.POST.get("next") or reverse("admin_appointment_detail", args=[pk]))
+
+
+@require_POST
+@superuser_required
+def admin_appointment_accept(request, pk):
+    appointment = get_object_or_404(Appointments, pk=pk)
+
+    if appointment.status != Appointments.Status.PENDING:
+        return JsonResponse({"error": "Only Pending appointments can be accepted."}, status=400)
+
+    appointment.status = Appointments.Status.CONFIRMED
+    appointment.save(update_fields=["status"])
+
+    return JsonResponse({"success": True, "status": "CONFIRMED", "status_display": "Confirmed"})
 
 
 @require_POST
