@@ -1,4 +1,7 @@
+import re
+
 from django.contrib.messages import get_messages
+from django.core import mail
 from django.test import TestCase, Client, override_settings
 from django.urls import reverse
 from django.contrib.sites.models import Site
@@ -40,7 +43,7 @@ class LoginErrorMessagingTests(TestCase):
         url = reverse("login")
         resp = self.client.post(url, data={"email": "client@example.com", "password": "wrongpw"}, follow=True)
         self.assertEqual(resp.status_code, 401)
-        self.assertIn("Your email and password did not match, please try again.", self._messages(resp))
+        self.assertIn("Invalid password.", self._messages(resp))
 
 
 class LoginTests(TestCase):
@@ -160,7 +163,7 @@ class LoginTests(TestCase):
         print("Assertion 2 PASS: exactly 1 error message displayed")
         self.assertEqual(
             actual_message,
-            "Your email and password did not match, please try again."
+            "Invalid password."
         )
         print("Assertion 3 PASS: error message matches expected")
         
@@ -214,7 +217,7 @@ class LoginTests(TestCase):
         print("Assertion 2 PASS: exactly 1 error message displayed")
         self.assertEqual(
             actual_message,
-            "Your email and password did not match, please try again."
+            "Invalid password."
         )
         print("Assertion 3 PASS: error message matches expected")
         
@@ -326,6 +329,9 @@ class SignupTests(TestCase):
         On password mismatch, non-password fields should be preserved while
         password fields remain blank.
         """
+        print("\nTEST: Signup with password mismatch preserves non-password fields")
+        print("EXPECTED: Passwords do not match message, non-password fields preserved, password fields blank")
+        
         post_data = {
             "first-name": "Jane",
             "last-name": "Smith",
@@ -337,18 +343,28 @@ class SignupTests(TestCase):
 
         response = self.client.post(self.signup_url, post_data, follow=True)
         messages_list = list(get_messages(response.wsgi_request))
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("Passwords do not match.", [str(m) for m in messages_list])
-
         form_data = response.context.get("form_data", {})
-        self.assertEqual(form_data.get("first_name"), "Jane")
-        self.assertEqual(form_data.get("last_name"), "Smith")
-        self.assertEqual(form_data.get("email"), "jane@example.com")
-        self.assertEqual(form_data.get("phone_number"), "1234567890")
-
         content = response.content.decode()
+        print(f"ACTUAL: status_code={response.status_code}, messages={[str(m) for m in messages_list]}, form_data={form_data}")
+        
+        self.assertEqual(response.status_code, 200)
+        print("Assertion 1 PASS: status_code == 200")
+        self.assertIn("Passwords do not match.", [str(m) for m in messages_list])
+        print("Assertion 2 PASS: 'Passwords do not match.' message displayed")
+
+        self.assertEqual(form_data.get("first_name"), "Jane")
+        print("Assertion 3 PASS: first_name preserved")
+        self.assertEqual(form_data.get("last_name"), "Smith")
+        print("Assertion 4 PASS: last_name preserved")
+        self.assertEqual(form_data.get("email"), "jane@example.com")
+        print("Assertion 5 PASS: email preserved")
+        self.assertEqual(form_data.get("phone_number"), "1234567890")
+        print("Assertion 6 PASS: phone_number preserved")
+
         self.assertNotIn('name="password1" value="Password1!"', content)
+        print("Assertion 7 PASS: password1 field blank")
         self.assertNotIn('name="password2" value="DifferentPassword1!"', content)
+        print("Assertion 8 PASS: password2 field blank")
 
     def test_signup_success_with_valid_data(self):
         """
@@ -383,6 +399,327 @@ class SignupTests(TestCase):
         self.assertEqual(new_user.email, "john@example.com")
         print("Assertion 4 PASS: email == 'john@example.com'")
 
+    def test_signup_blank_first_name_rejected(self):
+        """
+        Test that signup rejects blank first name
+        """
+        print("\nTEST: Signup with blank first name")
+        print("EXPECTED: Signup rejected with 'All fields must be filled in' message, no user created")
+        
+        post_data = {
+            "first-name": "",
+            "last-name": "Doe",
+            "email": "john@example.com",
+            "password1": "securepass123",
+            "password2": "securepass123",
+            "phone-number": "5551234567"
+        }
+        response = self.client.post(self.signup_url, post_data, follow=True)
+        messages_list = list(get_messages(response.wsgi_request))
+        user_exists = User.objects.filter(email="john@example.com").exists()
+        print(f"ACTUAL: messages={[str(m) for m in messages_list]}, user_exists={user_exists}")
+        
+        self.assertIn("All fields must be filled in", [str(m) for m in messages_list])
+        print("Assertion 1 PASS: 'All fields must be filled in' message displayed")
+        self.assertFalse(user_exists)
+        print("Assertion 2 PASS: no user created")
+
+    def test_signup_blank_last_name_rejected(self):
+        """
+        Test that signup rejects blank last name
+        """
+        print("\nTEST: Signup with blank last name")
+        print("EXPECTED: Signup rejected with 'All fields must be filled in' message, no user created")
+        
+        post_data = {
+            "first-name": "John",
+            "last-name": "",
+            "email": "john@example.com",
+            "password1": "securepass123",
+            "password2": "securepass123",
+            "phone-number": "5551234567"
+        }
+        response = self.client.post(self.signup_url, post_data, follow=True)
+        messages_list = list(get_messages(response.wsgi_request))
+        user_exists = User.objects.filter(email="john@example.com").exists()
+        print(f"ACTUAL: messages={[str(m) for m in messages_list]}, user_exists={user_exists}")
+        
+        self.assertIn("All fields must be filled in", [str(m) for m in messages_list])
+        print("Assertion 1 PASS: 'All fields must be filled in' message displayed")
+        self.assertFalse(user_exists)
+        print("Assertion 2 PASS: no user created")
+
+    def test_signup_blank_phone_number_rejected(self):
+        """
+        Test that signup rejects blank phone number
+        """
+        print("\nTEST: Signup with blank phone number")
+        print("EXPECTED: Signup rejected with 'All fields must be filled in' message, no user created")
+        
+        post_data = {
+            "first-name": "John",
+            "last-name": "Doe",
+            "email": "john@example.com",
+            "password1": "securepass123",
+            "password2": "securepass123",
+            "phone-number": ""
+        }
+        response = self.client.post(self.signup_url, post_data, follow=True)
+        messages_list = list(get_messages(response.wsgi_request))
+        user_exists = User.objects.filter(email="john@example.com").exists()
+        print(f"ACTUAL: messages={[str(m) for m in messages_list]}, user_exists={user_exists}")
+        
+        self.assertIn("All fields must be filled in", [str(m) for m in messages_list])
+        print("Assertion 1 PASS: 'All fields must be filled in' message displayed")
+        self.assertFalse(user_exists)
+        print("Assertion 2 PASS: no user created")
+
+    def test_signup_phone_number_format_validation(self):
+        """
+        Test that signup validates phone number format
+        """
+        print("\nTEST: Signup with invalid phone number format")
+        print("EXPECTED: Signup rejected with 'Please enter a valid phone number.' message, no user created")
+        
+        post_data = {
+            "first-name": "John",
+            "last-name": "Doe",
+            "email": "john@example.com",
+            "password1": "securepass123",
+            "password2": "securepass123",
+            "phone-number": "abc123"  # Invalid format
+        }
+        response = self.client.post(self.signup_url, post_data, follow=True)
+        messages_list = list(get_messages(response.wsgi_request))
+        user_exists = User.objects.filter(email="john@example.com").exists()
+        print(f"ACTUAL: messages={[str(m) for m in messages_list]}, user_exists={user_exists}")
+        
+        self.assertIn("Please enter a valid phone number.", [str(m) for m in messages_list])
+        print("Assertion 1 PASS: 'Please enter a valid phone number.' message displayed")
+        self.assertFalse(user_exists)
+        print("Assertion 2 PASS: no user created")
+
+    def test_signup_successful_registration_creates_guest_user_inactive(self):
+        """
+        Test that successful registration creates user with GUEST role and is_active=False
+        """
+        print("\nTEST: Successful signup creates guest user inactive")
+        print("EXPECTED: User created with role=GUEST and is_active=False")
+        
+        post_data = {
+            "first-name": "Jane",
+            "last-name": "Smith",
+            "email": "jane@example.com",
+            "password1": "securepass123",
+            "password2": "securepass123",
+            "phone-number": "555-123-4567"
+        }
+        response = self.client.post(self.signup_url, post_data, follow=True)
+        new_user = User.objects.get(email="jane@example.com")
+        print(f"ACTUAL: role={new_user.role}, is_active={new_user.is_active}")
+        
+        self.assertEqual(new_user.role, User.Role.GUEST)
+        print("Assertion 1 PASS: role == GUEST")
+        self.assertFalse(new_user.is_active)
+        print("Assertion 2 PASS: is_active == False")
+
+    def test_signup_creates_email_verification_record(self):
+        """
+        Test that signup creates EmailAddress with verified=False
+        """
+        print("\nTEST: Signup creates email verification record")
+        print("EXPECTED: EmailAddress created with verified=False and primary=True")
+        
+        post_data = {
+            "first-name": "Jane",
+            "last-name": "Smith",
+            "email": "jane@example.com",
+            "password1": "securepass123",
+            "password2": "securepass123",
+            "phone-number": "555-123-4567"
+        }
+        response = self.client.post(self.signup_url, post_data, follow=True)
+        email_address = EmailAddress.objects.get(email="jane@example.com")
+        print(f"ACTUAL: verified={email_address.verified}, primary={email_address.primary}")
+        
+        self.assertFalse(email_address.verified)
+        print("Assertion 1 PASS: verified == False")
+        self.assertTrue(email_address.primary)
+        print("Assertion 2 PASS: primary == True")
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class PasswordResetFlowTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+        site = Site.objects.get_or_create(
+            id=1,
+            defaults={"name": "Test Site", "domain": "testserver"},
+        )[0]
+        social_app, _ = SocialApp.objects.get_or_create(
+            provider="google",
+            defaults={"name": "Google (test)", "client_id": "test-client-id"},
+        )
+        social_app.sites.add(site)
+
+        self.reset_url = reverse("account_reset_password")
+        self.client_user = User.objects.create_user(
+            email="client@example.com",
+            password="Password123!",
+            first_name="Client",
+            last_name="User",
+            role=User.Role.CLIENT,
+            is_active=True,
+        )
+        EmailAddress.objects.create(
+            user=self.client_user,
+            email=self.client_user.email,
+            verified=True,
+            primary=True,
+        )
+
+        self.admin_user = User.objects.create_user(
+            email="admin@example.com",
+            password="AdminPass123!",
+            first_name="Admin",
+            last_name="User",
+            role=User.Role.ADMIN,
+            is_staff=True,
+            is_active=True,
+        )
+        EmailAddress.objects.create(
+            user=self.admin_user,
+            email=self.admin_user.email,
+            verified=True,
+            primary=True,
+        )
+
+    def _extract_reset_path(self, email_body):
+        match = re.search(r"https?://testserver(?P<path>/accounts/password/reset/key/[^\s]+)", email_body)
+        self.assertIsNotNone(match)
+        return match.group("path")
+
+    def test_reset_route_is_canonical_accounts_path(self):
+        self.assertEqual(self.reset_url, "/accounts/password/reset/")
+
+    def test_login_page_links_to_password_reset(self):
+        response = self.client.get(reverse("login"))
+        self.assertContains(response, 'href="/accounts/password/reset/"', html=False)
+
+    def test_reset_request_uses_generic_success_for_unknown_email(self):
+        response = self.client.post(
+            self.reset_url,
+            {"email": "missing@example.com"},
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "account/password_reset_done.html")
+        self.assertContains(
+            response,
+            "If an active account matches that email address, we have sent password reset instructions.",
+        )
+        self.assertNotContains(response, "missing@example.com")
+
+    def test_reset_request_sends_branded_email_for_existing_account(self):
+        response = self.client.post(
+            self.reset_url,
+            {"email": self.client_user.email},
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "account/password_reset_done.html")
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertTrue(mail.outbox[0].subject.endswith("Reset your Lydia's Law password"))
+        self.assertIn("Reset password", mail.outbox[0].alternatives[0][0])
+        self.assertIn("/accounts/password/reset/key/", mail.outbox[0].body)
+
+    def test_reset_form_renders_invalid_link_state(self):
+        url = reverse(
+            "account_reset_password_from_key",
+            kwargs={"uidb36": "abc123", "key": "invalid"},
+        )
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "account/password_reset_from_key.html")
+        self.assertContains(response, "Reset link expired or invalid")
+        self.assertContains(response, reverse("account_reset_password"))
+
+    def test_reset_form_shows_server_side_password_validation_errors(self):
+        self.client.post(self.reset_url, {"email": self.client_user.email}, follow=True)
+        reset_path = self._extract_reset_path(mail.outbox[0].body)
+        get_response = self.client.get(reset_path, follow=True)
+
+        post_response = self.client.post(
+            get_response.request["PATH_INFO"],
+            {
+                "password1": "short1",
+                "password2": "short1",
+            },
+        )
+
+        self.assertEqual(post_response.status_code, 200)
+        self.assertTemplateUsed(post_response, "account/password_reset_from_key.html")
+        self.assertContains(post_response, "This password is too short")
+
+    def test_successful_password_reset_sends_notification_email(self):
+        self.client.post(self.reset_url, {"email": self.client_user.email}, follow=True)
+        reset_path = self._extract_reset_path(mail.outbox[0].body)
+
+        get_response = self.client.get(reset_path, follow=True)
+        self.assertEqual(get_response.status_code, 200)
+        self.assertTemplateUsed(get_response, "account/password_reset_from_key.html")
+
+        post_response = self.client.post(
+            get_response.request["PATH_INFO"],
+            {
+                "password1": "NewSecurePass123!",
+                "password2": "NewSecurePass123!",
+            },
+            follow=True,
+        )
+
+        self.client_user.refresh_from_db()
+        self.assertTrue(self.client_user.check_password("NewSecurePass123!"))
+        self.assertEqual(post_response.status_code, 200)
+        self.assertTemplateUsed(post_response, "account/password_reset_from_key_done.html")
+        self.assertEqual(len(mail.outbox), 2)
+        self.assertTrue(mail.outbox[1].subject.endswith("Your Lydia's Law password was changed"))
+        self.assertIn("password for your Lydia's Law account was changed", mail.outbox[1].body)
+
+    def test_client_password_change_redirects_back_to_account(self):
+        self.client.force_login(self.client_user)
+
+        response = self.client.post(
+            reverse("account_change_password"),
+            {
+                "oldpassword": "Password123!",
+                "password1": "UpdatedPass123!",
+                "password2": "UpdatedPass123!",
+            },
+        )
+
+        self.client_user.refresh_from_db()
+        self.assertRedirects(response, reverse("client_account"), fetch_redirect_response=False)
+        self.assertTrue(self.client_user.check_password("UpdatedPass123!"))
+
+    def test_admin_password_change_redirects_to_admin_dashboard(self):
+        self.client.force_login(self.admin_user)
+
+        response = self.client.post(
+            reverse("account_change_password"),
+            {
+                "oldpassword": "AdminPass123!",
+                "password1": "AdminUpdated123!",
+                "password2": "AdminUpdated123!",
+            },
+        )
+
+        self.admin_user.refresh_from_db()
+        self.assertRedirects(response, reverse("admin_dashboard"), fetch_redirect_response=False)
+        self.assertTrue(self.admin_user.check_password("AdminUpdated123!"))
 
 # *** 403 Permission Denied Tests ***
 class AdminPermissionTests(TestCase):
@@ -430,25 +767,50 @@ class AdminPermissionTests(TestCase):
 class PageNotFoundTests(TestCase):
     # Test that non existant page returns 404
     def test_404_page_returns_404(self):
+        print("\nTEST: Accessing non-existent page")
+        print("EXPECTED: Returns 404 Not Found")
+        
         resp = self.client.get("/fake-page-test/")
+        print(f"ACTUAL: status_code={resp.status_code}")
+        
         self.assertEqual(resp.status_code, 404)
+        print("Assertion 1 PASS: status_code == 404")
 
     # Tests if the custom 404 template is rendered instead of Django default
     def test_404_uses_custom_template(self):
+        print("\nTEST: Accessing non-existent page uses custom 404 template")
+        print("EXPECTED: Uses 404.html template")
+        
         resp = self.client.get("/fake-page-test/")
+        template_used = resp.templates[0].name if resp.templates else "No template"
+        print(f"ACTUAL: template='{template_used}'")
+        
         self.assertTemplateUsed(resp, "404.html")
-        
-        
+        print("Assertion 1 PASS: template used is 404.html")
+
 class InternalServerErrorTests(TestCase):
 
     @override_settings(DEBUG=False)
     def test_500_page_returns_500(self):
+        print("\nTEST: Accessing test 500 page")
+        print("EXPECTED: Returns 500 Internal Server Error")
+        
         client = Client(raise_request_exception=False)
         resp = client.get("/test-500/")
+        print(f"ACTUAL: status_code={resp.status_code}")
+        
         self.assertEqual(resp.status_code, 500)
+        print("Assertion 1 PASS: status_code == 500")
 
     @override_settings(DEBUG=False)
     def test_500_uses_custom_template(self):
+        print("\nTEST: Accessing test 500 page uses custom 500 template")
+        print("EXPECTED: Uses 500.html template")
+        
         client = Client(raise_request_exception=False)
         resp = client.get("/test-500/")
+        template_used = resp.templates[0].name if resp.templates else "No template"
+        print(f"ACTUAL: template='{template_used}'")
+        
         self.assertTemplateUsed(resp, "500.html")
+        print("Assertion 1 PASS: template used is 500.html")

@@ -1,14 +1,209 @@
 from datetime import timedelta
+from datetime import timedelta
 
 from django.contrib.messages import get_messages
-from django.test import TestCase
+from django.test import TestCase, Client
 from django.urls import reverse
 from django.utils import timezone
+from django.utils import timezone
 
+from sitecontent.models import WebsiteContent
 from appointments.models import Appointments, Invitee
 from users.models import User
 from django.contrib.auth import get_user_model
+from finances.models import Invoice
 
+
+############################### Public pages ###############################
+
+# Public page tests (LLW-276)
+class PublicPagesTestCase(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+
+        # Create website content (temporary databse)
+        WebsiteContent.objects.create(
+
+            # Home page temporary database for test
+            frontPageHeader = "Home page heading",
+            frontPageDescription = "Mission Statement",
+
+            # Practice page temporary database for test
+            stepParentAdoptionDescription="Step-parent adoption description",
+            adultAdoptionDescription="Adult adoption description",
+            guardianshipDescription="Guardianship description",
+            guardianshipToAdoptionDescription="Guardianship to adoption description",
+            independentAdoptionDescription="Independent adoption description",
+        )
+
+    # Django made client account
+    def setUp(self):
+        self.client = Client()
+
+    # Test: Home page returns 200
+    def test_home_page_returns_200(self):
+        response = self.client.get(reverse('home'))
+        self.assertEqual(response.status_code, 200)
+
+    # Test: Home page uses correct template
+    def test_home_page_uses_correct_template(self):
+        response = self.client.get(reverse('home'))
+        self.assertTemplateUsed(response, 'home.html')
+
+    # Test: Home page contains header text
+    def test_home_page_heading_text(self):
+        response = self.client.get(reverse('home'))
+        self.assertTemplateUsed(response, 'home.html')
+
+    # Test: Home page contains mission statement
+    def test_home_page_contains_mission_statement(self):
+        response = self.client.get(reverse('home'))
+        self.assertContains(response, 'Home page heading')
+
+    # Test: About page returns 200
+    def test_about_page_returns_200(self):
+        response = self.client.get(reverse('about'))
+        self.assertEqual(response.status_code, 200)
+
+    # Test: About page conatins biography
+    def test_about_page_contains_biography_section(self):
+        response = self.client.get(reverse('about'))
+        self.assertContains(response, 'About Lydia A. Suprun')
+
+    # Test: Practice Areas page returns 200
+    def test_practice_areas_page_returns_200(self):
+        response = self.client.get(reverse('practice_areas'))
+        self.assertEqual(response.status_code, 200)
+
+   # Test: Practice Areas page contains all 5 practice areas :
+    # (Step-Parent, Adult, Guardianship, Guardianship-to-Adoption, Independent)
+    def test_practice_areas_page_contains_all_practice_areas(self):
+        response = self.client.get(reverse('practice_areas'))
+        self.assertContains(response, 'Step-Parent Adoption')
+        self.assertContains(response, 'Adult Adoption')
+        self.assertContains(response, 'Guardianship')
+        self.assertContains(response, 'Guardianship to Adoption')
+        self.assertContains(response, 'Independent Adoption')
+
+    # Test: Contact page returns 200
+    def test_contact_page_returns_200(self):
+        response = self.client.get(reverse('contact'))
+        self.assertEqual(response.status_code, 200)
+
+    # Test: Payment (invoice lookup) page returns 200
+    def test_payment_page_returns_200(self):
+        response = self.client.get(reverse('payment'))
+        self.assertEqual(response.status_code, 200)
+
+    # Test: Privacy page returns 200
+    def test_privacy_page_returns_200(self):
+        response = self.client.get(reverse('privacy'))
+        self.assertEqual(response.status_code, 200)
+
+# Test For Public Nav Bar - 277
+class PublicNavbarTests(TestCase):
+    def test_public_nav_contains_expected_links(self):
+       # Access public page -> home
+        response = self.client.get(reverse('home'))
+
+        # Nav Contains logo linking to home page
+        self.assertContains(response, 'href="/"')
+
+        # Nav contains links to diff pages -> about, payment, contact, login ...
+        self.assertContains(response, 'Practice Areas')
+        self.assertContains(response, 'About')
+        self.assertContains(response, 'Contact')
+        self.assertContains(response, 'Privacy Policy')
+        self.assertContains(response, 'Payment')
+        self.assertContains(response, 'Login')
+        
+        # Nav does NOT show dashboard, logout, transaction history
+        self.assertNotContains(response, 'Dashboard')
+        self.assertNotContains(response, 'Logout')
+        self.assertNotContains(response, 'Transaction History')    
+
+
+############################### Client pages ###############################
+
+# Client Dashbaord test (LLW-279)
+class ClientDashboardTests(TestCase):
+    def setUp(self):
+
+        # Make client user
+        self.user = User.objects.create_user(
+            email="client@example.com",
+            password="pass",
+            first_name="Jane",
+            last_name="Doe",
+            phone_number="5551234567",
+            is_active=True,
+        )
+
+        # Create invoice object for client user (for 'Amount Due' on dashboard)
+        self.invoice = Invoice.objects.create(
+            user=self.user,
+            amount=12300,
+        )
+
+        # Create appointments for client user
+        now = timezone.now()
+        self.appt1 = Appointments.objects.create(
+            user_id=self.user,
+            start_time=now + timedelta(days=1),
+            comments="Appointment 1",
+            approved=True,
+        )
+        self.appt2 = Appointments.objects.create(
+            user_id=self.user,
+            start_time=now + timedelta(days=2),
+            comments="Appointment 2",
+            approved=True,
+        )
+        self.appt3 = Appointments.objects.create(
+            user_id=self.user,
+            start_time=now + timedelta(days=3),
+            comments="Appointment 3",
+            approved=True,
+        )
+        self.appt4 = Appointments.objects.create(
+            user_id=self.user,
+            start_time=now + timedelta(days=4),
+            comments="Appointment 4",
+            approved=True,
+        )
+
+    # Test: Dashboard requires login (redirects if not authenticated)
+    def test_dashboard_requires_login(self):
+        response = self.client.get(reverse("client_dashboard"))
+        self.assertEqual(response.status_code, 302)
+
+    # Test: Dashboard returns 200 for authenticated client
+    def test_dashboard_returns_200_for_authenticated_client(self):
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("client_dashboard"))
+        self.assertEqual(response.status_code, 200)
+
+    # Test: Dashboard context includes upcoming appointments (next 3)
+    def test_dashboard_context_includes_next_3_upcoming_appointments(self):
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("client_dashboard"))
+
+        self.assertIn("upcoming_appts", response.context)
+        upcoming = response.context["upcoming_appts"]
+        self.assertEqual(len(upcoming), 3)
+
+    # Test: Dashboard shows amount due / retainer balance
+    def test_dashboard_shows_amount_due(self):
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("client_dashboard"))
+        self.assertContains(response, "Amount Due:")
+        self.assertContains(response, "$123")
+
+    # Test: Dashboard contains link to payment page
+    def test_dashboard_contains_link_to_payment_page(self):
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("client_dashboard"))
+        self.assertContains(response, reverse("client_invoices"))
 
 
 # LLW-248 / LLW-251 — Client account page (backend + validation) testing
@@ -187,6 +382,7 @@ class ClientAccountViewTests(TestCase):
         )
         self.assertIn("That field cannot be updated here.", self._messages(resp))
 
+############################### Admin pages ###############################
 
 class AdminAppointmentActionsTests(TestCase):
     def setUp(self):
@@ -468,25 +664,3 @@ class AdminClientsViewTest(TestCase):
         self.assertEqual(len(response.context['page_obj']), 1)
         self.assertEqual(response.context['page_obj'][0].first_name, 'John')
         self.assertEqual(response.context['page_obj'][0].retainer_balance, 100)
-
-# Test For Public Nav Bar
-class PublicNavbarTests(TestCase):
-    def test_public_nav_contains_expected_links(self):
-       # Access public page -> home
-        response = self.client.get(reverse('home'))
-
-        # Nav Contains logo linking to home page
-        self.assertContains(response, 'href="/"')
-
-        # Nav contains links to diff pages -> about, payment, contact, login ...
-        self.assertContains(response, 'Practice Areas')
-        self.assertContains(response, 'About')
-        self.assertContains(response, 'Contact')
-        self.assertContains(response, 'Privacy Policy')
-        self.assertContains(response, 'Payment')
-        self.assertContains(response, 'Login')
-        
-        # Nav does NOT show dashboard, logout, transaction history
-        self.assertNotContains(response, 'Dashboard')
-        self.assertNotContains(response, 'Logout')
-        self.assertNotContains(response, 'Transaction History')    
