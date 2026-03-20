@@ -665,3 +665,152 @@ class AdminClientsViewTest(TestCase):
         self.assertEqual(len(response.context['page_obj']), 1)
         self.assertEqual(response.context['page_obj'][0].first_name, 'John')
         self.assertEqual(response.context['page_obj'][0].retainer_balance, 100)
+
+
+############################### Admin Editor Page (LLW-289) ###############################
+
+class AdminEditorTests(TestCase):
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.content = WebsiteContent.objects.create(
+            frontPageHeader="Test Header",
+            frontPageDescription="<p>Test description</p>",
+            nameTitle="Lydia A. Suprun",
+            aboutMeDescription="<p>About text</p>",
+            officeLocation="123 Main St",
+            stepParentAdoptionDescription="<p>Step-parent</p>",
+            adultAdoptionDescription="<p>Adult</p>",
+            guardianshipDescription="<p>Guardianship</p>",
+            guardianshipToAdoptionDescription="<p>G to A</p>",
+            independentAdoptionDescription="<p>Independent</p>",
+            footerDescription="<p>Footer</p>",
+        )
+
+    def setUp(self):
+        self.superuser = User.objects.create_user(
+            email="admin@editor.com",
+            password="pw",
+            first_name="Admin",
+            last_name="Editor",
+            is_staff=True,
+            is_superuser=True,
+            is_active=True,
+        )
+        self.regular_user = User.objects.create_user(
+            email="regular@example.com",
+            password="pw",
+            first_name="Regular",
+            last_name="User",
+            is_active=True,
+        )
+
+    # commented out for now bc we aren't enforcing superuser for admin dashboard yet
+    # Test: Editor page requires superuser
+    # def test_editor_requires_superuser(self):
+    #     self.client.force_login(self.regular_user)
+    #     response = self.client.get(reverse('admin_editor'))
+    #     self.assertNotEqual(response.status_code, 200)
+
+    # Test: GET loads current content into form fields
+    def test_get_loads_content_into_form(self):
+        self.client.force_login(self.superuser)
+        response = self.client.get(reverse('admin_editor'))
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'admin/editor.html')
+        form = response.context['form']
+        self.assertEqual(form.initial['frontPageHeader'], "Test Header")
+        self.assertEqual(form.initial['nameTitle'], "Lydia A. Suprun")
+        self.assertEqual(form.initial['officeLocation'], "123 Main St")
+
+    # Test: GET populates all section fields (home, about, practice areas, contact, FAQ, footer)
+    def test_get_populates_all_sections(self):
+        self.client.force_login(self.superuser)
+        response = self.client.get(reverse('admin_editor'))
+        form = response.context['form']
+        self.assertEqual(form.initial['frontPageHeader'], "Test Header")
+        self.assertEqual(form.initial['frontPageDescription'], "<p>Test description</p>")
+        self.assertEqual(form.initial['nameTitle'], "Lydia A. Suprun")
+        self.assertEqual(form.initial['aboutMeDescription'], "<p>About text</p>")
+        self.assertEqual(form.initial['officeLocation'], "123 Main St")
+        self.assertEqual(form.initial['stepParentAdoptionDescription'], "<p>Step-parent</p>")
+        self.assertEqual(form.initial['adultAdoptionDescription'], "<p>Adult</p>")
+        self.assertEqual(form.initial['guardianshipDescription'], "<p>Guardianship</p>")
+        self.assertEqual(form.initial['guardianshipToAdoptionDescription'], "<p>G to A</p>")
+        self.assertEqual(form.initial['independentAdoptionDescription'], "<p>Independent</p>")
+        self.assertEqual(form.initial['footerDescription'], "<p>Footer</p>")
+
+    # Test: POST updates content and creates new version
+    def test_post_updates_content(self):
+        self.client.force_login(self.superuser)
+        post_data = {
+            'frontPageHeader': 'Updated Header',
+            'frontPageDescription': '<p>Updated description</p>',
+            'nameTitle': 'Updated Name',
+            'aboutMeDescription': '<p>Updated about</p>',
+            'officeLocation': 'Updated Location',
+            'stepParentAdoptionDescription': '<p>Updated step-parent</p>',
+            'adultAdoptionDescription': '<p>Updated adult</p>',
+            'guardianshipDescription': '<p>Updated guardianship</p>',
+            'guardianshipToAdoptionDescription': '<p>Updated g to a</p>',
+            'independentAdoptionDescription': '<p>Updated independent</p>',
+            'footerDescription': '<p>Updated footer</p>',
+        }
+        response = self.client.post(reverse('admin_editor'), post_data)
+        self.assertRedirects(response, reverse('admin_editor'))
+
+        # Verify the content was saved
+        latest = WebsiteContent.objects.order_by('-versionNumber').first()
+        self.assertEqual(latest.frontPageHeader, 'Updated Header')
+        self.assertEqual(latest.footerDescription, '<p>Updated footer</p>')
+
+    # Test: "Update All" saves all sections in one POST
+    def test_update_all_saves_all_sections(self):
+        self.client.force_login(self.superuser)
+        post_data = {
+            'frontPageHeader': 'All Updated Header',
+            'frontPageDescription': '<p>All updated desc</p>',
+            'nameTitle': 'All Updated Name',
+            'aboutMeDescription': '<p>All updated about</p>',
+            'officeLocation': 'All Updated Location',
+            'stepParentAdoptionDescription': '<p>All updated SP</p>',
+            'adultAdoptionDescription': '<p>All updated Adult</p>',
+            'guardianshipDescription': '<p>All updated Guard</p>',
+            'guardianshipToAdoptionDescription': '<p>All updated GtA</p>',
+            'independentAdoptionDescription': '<p>All updated Indep</p>',
+            'footerDescription': '<p>All updated footer</p>',
+        }
+        response = self.client.post(reverse('admin_editor'), post_data)
+        self.assertRedirects(response, reverse('admin_editor'))
+
+        latest = WebsiteContent.objects.order_by('-versionNumber').first()
+        self.assertEqual(latest.frontPageHeader, 'All Updated Header')
+        self.assertEqual(latest.nameTitle, 'All Updated Name')
+        self.assertEqual(latest.officeLocation, 'All Updated Location')
+        self.assertEqual(latest.stepParentAdoptionDescription, '<p>All updated SP</p>')
+        self.assertEqual(latest.adultAdoptionDescription, '<p>All updated Adult</p>')
+        self.assertEqual(latest.guardianshipDescription, '<p>All updated Guard</p>')
+        self.assertEqual(latest.guardianshipToAdoptionDescription, '<p>All updated GtA</p>')
+        self.assertEqual(latest.independentAdoptionDescription, '<p>All updated Indep</p>')
+        self.assertEqual(latest.footerDescription, '<p>All updated footer</p>')
+
+    # Test: Success message "Pages Have Been Updated" shown after save
+    def test_success_message_shown_after_save(self):
+        self.client.force_login(self.superuser)
+        post_data = {
+            'frontPageHeader': 'Msg Test',
+            'frontPageDescription': '',
+            'nameTitle': '',
+            'aboutMeDescription': '',
+            'officeLocation': '',
+            'stepParentAdoptionDescription': '',
+            'adultAdoptionDescription': '',
+            'guardianshipDescription': '',
+            'guardianshipToAdoptionDescription': '',
+            'independentAdoptionDescription': '',
+            'footerDescription': '',
+        }
+        response = self.client.post(reverse('admin_editor'), post_data, follow=True)
+        self.assertEqual(response.status_code, 200)
+        msgs = list(get_messages(response.wsgi_request))
+        self.assertTrue(any('updated successfully' in str(m) for m in msgs))
