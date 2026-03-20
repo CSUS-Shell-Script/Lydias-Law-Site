@@ -732,37 +732,66 @@ class AdminPermissionTests(TestCase):
             password="Password1!"
         )
         self.superuser = User.objects.create_superuser(
-            email="admin@unitTest.com", 
+            email="admin@unitTest.com",
             password="Pass12345!"
         )
+
     # Test for guest user -> not logged in 
     # Should get 403 page
     def test_guest_user_gets_403(self):
-        resp = self.client.get(self.url)
-        self.assertEqual(resp.status_code, 403)
+        print("\nTEST: Guest user accessing admin dashboard")
+        print("EXPECTED: Returns 403 Forbidden")
         
+        resp = self.client.get(self.url)
+        print(f"ACTUAL: status_code={resp.status_code}")
+        
+        self.assertEqual(resp.status_code, 403)
+        print("Assertion 1 PASS: status_code == 403")
+
     # Test for client user -> logged in
     # Should get 403 page
     def test_client_user_gets_403(self):
+        print("\nTEST: Client user accessing admin dashboard")
+        print("EXPECTED: Returns 403 Forbidden")
+        
         self.client.login(email="client@unitTest.com", password="Password1!")
         resp = self.client.get(self.url)
+        print(f"ACTUAL: status_code={resp.status_code}")
+        
         self.assertEqual(resp.status_code, 403)
+        print("Assertion 1 PASS: status_code == 403")
 
     # Test for admin user -> logged in
     # Should NOT get 403 page
     def test_superuser_gets_200(self):
+        print("\nTEST: Superuser accessing admin dashboard")
+        print("EXPECTED: Returns 200 OK and uses admin/dashboard.html template")
+        
         self.client.login(email="admin@unitTest.com", password="Pass12345!")
         resp = self.client.get(self.url)
+        template_used = resp.templates[0].name if resp.templates else "No template"
+        print(f"ACTUAL: status_code={resp.status_code}, template='{template_used}'")
+        
         self.assertEqual(resp.status_code, 200)
+        print("Assertion 1 PASS: status_code == 200")
         self.assertTemplateUsed(resp, "admin/dashboard.html")
-
+        print("Assertion 2 PASS: template used is admin/dashboard.html")
+        
     # Tests if custom 403 template is rendered instead of Django default
-    def test_403_uses_custom_tempate(self):
+    def test_403_uses_custom_template(self):
+        print("\nTEST: Client user accessing admin dashboard gets 403 with custom template")
+        print("EXPECTED: Returns 403 Forbidden and uses 403.html template")
+        
         self.client.login(email="client@unitTest.com", password="Password1!")
         resp = self.client.get(self.url)
+        template_used = resp.templates[0].name if resp.templates else "No template"
+        print(f"ACTUAL: status_code={resp.status_code}, template='{template_used}'")
+        
         self.assertEqual(resp.status_code, 403)
+        print("Assertion 1 PASS: status_code == 403")
         self.assertTemplateUsed(resp, "403.html")
-
+        print("Assertion 2 PASS: template used is 403.html")
+        
 # *** 404 Page Not Found Tests ***
 class PageNotFoundTests(TestCase):
     # Test that non existant page returns 404
