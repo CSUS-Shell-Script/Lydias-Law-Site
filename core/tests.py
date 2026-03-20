@@ -12,7 +12,9 @@ from appointments.models import Appointments, Invitee
 from users.models import User
 from django.contrib.auth import get_user_model
 from finances.models import Invoice
+from allauth.account.models import EmailAddress
 
+User = get_user_model()
 
 ############################### Public pages ###############################
 
@@ -664,3 +666,71 @@ class AdminClientsViewTest(TestCase):
         self.assertEqual(len(response.context['page_obj']), 1)
         self.assertEqual(response.context['page_obj'][0].first_name, 'John')
         self.assertEqual(response.context['page_obj'][0].retainer_balance, 100)
+
+
+# CLIENT NAVIGATION BAR TEST - LLW 278
+class ClientNavbarTest(TestCase):
+    def setUp(self):
+        self.client = Client()
+
+
+        WebsiteContent.objects.create(
+            frontPageHeader="Test Header",
+            frontPageDescription="Test Description",
+        )
+
+        # Create Test Client 
+        self.user = User.objects.create_user(
+            email="clientUser@test.com",
+            password="Pass123!",   
+            role=User.Role.CLIENT, 
+            is_active=True,                   
+        )
+
+        EmailAddress.objects.create(
+            user=self.user,
+            email=self.user.email,
+            primary=True,
+            verified=True,
+        )
+
+
+    def test_navbar_for_logged_in_client(self):
+        # Log in the user        
+        self.client.force_login(self.user)
+
+        response = self.client.get("/client/dashboard/", follow=True)        
+        self.assertEqual(response.status_code, 200)
+
+        # Should be visible
+        self.assertContains(response, reverse("client_practice_areas"))
+        self.assertContains(response, reverse("client_about"))
+        self.assertContains(response, reverse("client_contact"))
+        self.assertContains(response, reverse("client_privacy"))
+        self.assertContains(response, reverse("client_dashboard"))
+        self.assertContains(response, reverse("client_invoices"))
+        self.assertContains(response, reverse("client_account"))
+
+        self.assertContains(response, "Logout")
+        self.assertContains(response, 'method="post"')
+
+        # Should NOT be visible
+        self.assertNotContains(response, "/users/login")
+
+    def test_logout_redirects_to_home(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(reverse("logout"))
+
+        self.assertRedirects(response, reverse("home"))
+        # Confirm user is actually logged out
+        response  = self.client.get("/client/dashboard/")
+        self.assertNotEqual(response.status_code, 200)
+
+    def test_logo_links_to_home(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get("/client/dashboard/", follow=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f'href="{reverse("home")}"')
+
