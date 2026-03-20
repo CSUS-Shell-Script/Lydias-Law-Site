@@ -69,6 +69,7 @@ def schedule(r): return render(r, "schedule.html")
 def privacy(r): return render(r, "privacy.html")
 def appointment_confirmation(r): return render (r, "appointment_confirmation.html")
 def payment_success(r): return render (r, "payment_success.html")
+def payment_failure(r): return render (r, "payment_failure.html")
 
 def login(r): 
     role = r.GET.get("role", "guest")

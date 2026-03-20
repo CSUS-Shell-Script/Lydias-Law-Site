@@ -11,7 +11,8 @@ from unittest.mock import patch, MagicMock
 
 from allauth.socialaccount.models import SocialApp
 
-from finances.models import Invoice
+from finances.models import Invoice, Payment
+from finances.views import get_or_create_stripe_customer_id
 from users.models import AdminProfile
 from decimal import Decimal
 
@@ -758,3 +759,241 @@ class PendingInvoiceValidationTests(_InvoiceTestBase):
         data = json.loads(response.content)
         self.assertTrue(data["success"])
         self.assertEqual(Invoice.objects.count(), 2)
+
+
+class StripePaymentFlowTests(TestCase):
+    """Test the actual Stripe payment processing flow"""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="client@example.com",
+            password="testpass",
+            first_name="Test",
+            last_name="Client",
+            is_active=True,
+        )
+        self.invoice = Invoice.objects.create(
+            user=self.user,
+            amount=50000,  # $500
+            status=Invoice.Status.PENDING,
+            hosted_invoice_url="https://stripe.com/test_invoice"
+        )
+
+    ############################### Order Summary Display Tests ###############################
+
+    # Test: Payment page for logged-in users shows order summary
+    def test_payment_page_for_logged_in_users_shows_order_summary(self):
+        """Payment page for logged-in users shows order summary"""
+        print("\nTEST: Payment page for logged-in users shows order summary")
+        print("EXPECTED: Page loads with status=200, shows correct amount, Amount Due, Pay Now, Status: Pending")
+        
+        self.client.force_login(self.user)
+        response = self.client.get(reverse('client_invoices'))
+
+        # Should show current invoice with correct amount.
+        expected_display_amount = f"${self.invoice.amount / 100:.2f}"  # Convert cents to dollars.
+        print(f"ACTUAL: status={response.status_code}, amount_displayed={expected_display_amount}")
+
+        self.assertEqual(response.status_code, 200) # Assert success code.
+        print("Assertion 1 PASS: response.status_code == 200")
+
+        # Ensure the invoice details are displayed correctly for a pending order.
+        self.assertContains(response, expected_display_amount)
+        print("Assertion 2 PASS: expected_display_amount in response")
+        self.assertContains(response, 'Amount Due')
+        print("Assertion 3 PASS: 'Amount Due' in response")
+        self.assertContains(response, 'Pay Now')
+        print("Assertion 4 PASS: 'Pay Now' in response")
+        self.assertContains(response, 'Status: Pending')
+        print("Assertion 5 PASS: 'Status: Pending' in response")
+        
+    # Test: Payment page shows correct amount regardless of invoice amount
+    def test_payment_page_shows_correct_amount_for_different_invoice_amounts(self):
+        """Payment page shows correct amount regardless of invoice amount"""
+        # Test with different amounts to ensure the display is dynamic.
+        test_amounts = [10000, 25000, 75000, 100000]  # $100, $250, $750, $1000.
+
+        for amount in test_amounts:
+            with self.subTest(amount=amount):
+                print(f"\nTEST: Payment page shows correct amount for invoice amount {amount} (${amount/100:.2f})")
+                print(f"EXPECTED: Page loads with status=200, shows amount ${amount/100:.2f}")
+                
+                # Update the invoice amount.
+                self.invoice.amount = amount
+                self.invoice.save()
+
+                self.client.force_login(self.user)
+                response = self.client.get(reverse('client_invoices'))
+                self.assertEqual(response.status_code, 200)
+
+                # Should show the correct amount for this invoice.
+                expected_display_amount = f"${amount / 100:.2f}"
+
+                print(f"ACTUAL: status={response.status_code}, amount_displayed={expected_display_amount}")
+                print("Assertion 1 PASS: response.status_code == 200")
+
+                # Ensure the invoice details are the proper displayed values.
+                self.assertContains(response, expected_display_amount)
+                print("Assertion 2 PASS: expected_display_amount in response")
+                self.assertContains(response, 'Amount Due')
+                print("Assertion 3 PASS: 'Amount Due' in response")
+                self.assertContains(response, 'Pay Now')
+                print("Assertion 4 PASS: 'Pay Now' in response")
+                
+    ############################### Checkout Session Tests ###############################
+
+    # Test: Checkout session creation requires valid invoice
+    def test_checkout_session_creation_requires_valid_invoice(self):
+        """Checkout session creation requires valid invoice"""
+        print("\nTEST: Checkout session creation with invalid invoice ID (99999)")
+        print("EXPECTED: Request redirects with status=302 to payment page")
+        
+        # Test with invalid invoice ID.
+        response = self.client.get(reverse('create_checkout_session', args=[99999]))
+        print(f"ACTUAL: status={response.status_code}")
+
+        self.assertEqual(response.status_code, 302) # Error code that is sent by Django redirect().
+        print("Assertion 1 PASS: response.status_code == 302")
+        self.assertRedirects(response, reverse('payment'))    
+        print("Assertion 2 PASS: redirects to payment page")
+
+    ############################### Stripe Customer Management Tests ###############################
+
+    # Test: User's Stripe customer ID is created/reused
+    @patch("finances.views.stripe")
+    def test_user_stripe_customer_id_created_and_reused(self, mock_stripe):
+        """User's Stripe customer ID is created/reused"""
+        print("\nTEST: User's Stripe customer ID is created and reused")
+        print("EXPECTED: First call creates customer, second call reuses existing ID")
+        
+        # Mock Stripe customer creation.
+        mock_customer = MagicMock()
+        mock_customer.id = "cus_test123"
+        mock_stripe.Customer.create.return_value = mock_customer
+
+        # First call should create customer.
+        customer_id = get_or_create_stripe_customer_id(self.user)
+        self.assertEqual(customer_id, "cus_test123")
+        mock_stripe.Customer.create.assert_called_once()
+        
+        # Refresh user from DB.
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.provider_customer_id, "cus_test123")
+
+        # Second call should reuse existing ID.
+        mock_stripe.Customer.create.reset_mock()
+        customer_id2 = get_or_create_stripe_customer_id(self.user)
+        self.assertEqual(customer_id2, "cus_test123")
+        mock_stripe.Customer.create.assert_not_called()  # Should not create again.
+        
+        print(f"ACTUAL: first_customer_id={customer_id}, second_customer_id={customer_id2}")
+        print("Assertion 1 PASS: customer_id == 'cus_test123'")
+        print("Assertion 2 PASS: mock_stripe.Customer.create.assert_called_once()")
+        print("Assertion 3 PASS: self.user.provider_customer_id == 'cus_test123'")
+        print("Assertion 4 PASS: customer_id2 == 'cus_test123'")
+        print("Assertion 5 PASS: mock_stripe.Customer.create.assert_not_called()")
+
+    ############################### Payment Processing Tests ###############################
+
+    # Test: Successful payment updates invoice status to PAID
+    @patch("finances.views.stripe")
+    def test_successful_payment_updates_invoice_status_to_paid(self, mock_stripe):
+        """Successful payment updates invoice status to PAID"""
+        print("\nTEST: Successful payment updates invoice status to PAID")
+        print("EXPECTED: Checkout session created (302), webhook processed (200), invoice status becomes PAID")
+        
+        # Mock Stripe checkout session for testing uses.
+        mock_session = MagicMock()
+        mock_session.url = "https://checkout.stripe.com/test"
+        mock_stripe.checkout.Session.create.return_value = mock_session
+
+        # Create checkout session.
+        checkout_response = self.client.get(reverse('create_checkout_session', args=[self.invoice.id]))
+        self.assertEqual(checkout_response.status_code, 302)
+
+        # Simulate webhook for successful payment.
+        webhook_data = {
+            "id": "evt_test",
+            "type": "invoice.paid",
+            "data": {
+                "object": {
+                    "id": "inv_test",
+                    "metadata": {"invoice_id": str(self.invoice.id)},
+                    "status": "paid"
+                }
+            }
+        }
+
+        # Mock webhook signature verification.
+        # I didn't even know you could do this, this was a very cool find.
+        with patch("finances.views.stripe.Webhook.construct_event", return_value=webhook_data), \
+             patch("finances.views.settings.STRIPE_WEBHOOK_SECRET", "test_secret"):
+            webhook_response = self.client.post(
+                reverse('stripe_webhook'),
+                data=json.dumps(webhook_data),
+                content_type='application/json',
+                HTTP_STRIPE_SIGNATURE='test_sig'
+            )
+            self.assertEqual(webhook_response.status_code, 200)
+
+        # Check invoice was updated.
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, Invoice.Status.PAID)
+        self.assertTrue(self.invoice.paid)
+        
+        print(f"ACTUAL: checkout_status={checkout_response.status_code}, webhook_status={webhook_response.status_code}, final_invoice_status={self.invoice.status}")
+        print("Assertion 1 PASS: checkout response.status_code == 302")
+        print("Assertion 2 PASS: webhook response.status_code == 200")
+        print("Assertion 3 PASS: self.invoice.status == Invoice.Status.PAID")
+        print("Assertion 4 PASS: self.invoice.paid == True")
+
+    # Test: Payment creates Payment record in DB
+    @patch("finances.views.stripe")
+    def test_payment_creates_payment_record_in_db(self, mock_stripe):
+        """Payment creates Payment record in DB"""
+        print("\nTEST: Payment creates Payment record in DB")
+        print("EXPECTED: Webhook processed (200), Payment record created with correct details")
+
+        # Simulate webhook for successful payment.
+        webhook_data = {
+            "id": "evt_test",
+            "type": "invoice.paid", 
+            "data": {
+                "object": {
+                    "id": "inv_test",
+                    "amount_due": 50000,
+                    "metadata": {"invoice_id": str(self.invoice.id)},
+                    "status": "paid"
+                }
+            }
+        }
+
+        # Count payments before.
+        initial_payment_count = Payment.objects.count()
+
+        # Mock webhook signature verification.
+        with patch("finances.views.stripe.Webhook.construct_event", return_value=webhook_data), \
+             patch("finances.views.settings.STRIPE_WEBHOOK_SECRET", "test_secret"):
+            response = self.client.post(
+                reverse('stripe_webhook'),
+                data=json.dumps(webhook_data),
+                content_type='application/json',
+                HTTP_STRIPE_SIGNATURE='test_sig'
+            )
+            self.assertEqual(response.status_code, 200)
+
+        # Check that Payment record was created.
+        final_payment_count = Payment.objects.count()
+        self.assertEqual(final_payment_count, initial_payment_count + 1)
+        
+        payment = Payment.objects.latest('id')
+        self.assertEqual(payment.user, self.user)
+        self.assertEqual(payment.amount, 50000)
+        self.assertEqual(payment.status, Payment.Status.SUCCESS)
+        
+        print(f"ACTUAL: webhook_status={response.status_code}, initial_count={initial_payment_count}, final_count={final_payment_count}, payment_user={payment.user}, payment_amount={payment.amount}, payment_status={payment.status}")
+        print("Assertion 1 PASS: response.status_code == 200")
+        print("Assertion 2 PASS: final_payment_count == initial_payment_count + 1")
+        print("Assertion 3 PASS: payment.user == self.user")
+        print("Assertion 4 PASS: payment.amount == 50000")
+        print("Assertion 5 PASS: payment.status == Payment.Status.SUCCESS")
