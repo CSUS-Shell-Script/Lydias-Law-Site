@@ -467,3 +467,70 @@ class AdminClientsViewTest(TestCase):
         self.assertEqual(len(response.context['page_obj']), 1)
         self.assertEqual(response.context['page_obj'][0].first_name, 'John')
         self.assertEqual(response.context['page_obj'][0].retainer_balance, 100)
+
+class AdminAppointmentHistoryTests(TestCase):
+
+    def setUp(self):
+        self.admin = User.objects.create_superuser(
+        email="admin@test.com",
+        password="pass123",
+        role=User.Role.ADMIN,   
+        is_superuser=True,     
+        is_staff=True           
+        )
+
+        self.client.force_login(self.admin)
+
+        self.client.login(username="admin", password="pass123")
+
+        self.url = reverse("admin_appointments")
+
+        self.now = timezone.now()
+
+        # past appointments
+        self.appt1 = Appointments.objects.create(
+            user_id=self.admin,
+            start_time=self.now - timedelta(days=1),
+            status=Appointments.Status.COMPLETED,
+            comments="Past 1"
+        )
+
+        self.appt2 = Appointments.objects.create(
+            user_id=self.admin,
+            start_time=self.now - timedelta(days=2),
+            status=Appointments.Status.CANCELLED,
+            comments="Past 2"
+        )
+
+        Invitee.objects.create(
+            appointment=self.appt1,
+            name="John Doe",
+            email="john@test.com",
+            phone_number="123"
+        )
+
+    # 1. Lists past appointments
+    def test_lists_past_appointments(self):
+        response = self.client.get(self.url)
+
+        self.assertContains(response, "Past 1")
+        self.assertContains(response, "Past 2")
+
+    # 2. Each appointment shows comments section
+    def test_comments_are_displayed(self):
+        response = self.client.get(self.url)
+
+        self.assertContains(response, "Past 1")
+        self.assertContains(response, "Past 2")
+
+    # 3. Page loads (basic sanity for history page)
+    def test_history_page_loads(self):
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+
+    # 4. Appointment info is shown (name + basic fields)
+    def test_appointment_shows_basic_info(self):
+        response = self.client.get(self.url)
+
+        self.assertContains(response, "John Doe")
