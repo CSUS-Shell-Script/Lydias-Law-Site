@@ -1,7 +1,8 @@
 # forms.py holds the form classes for data input
 
 from django import forms
-from sitecontent.models import WebsiteContent
+from django.forms import modelformset_factory
+from sitecontent.models import WebsiteContent, FAQItem
 
 
 class WebsiteContentForm(forms.ModelForm):
@@ -67,3 +68,64 @@ class WebsiteContentForm(forms.ModelForm):
             'officeLocation': 'Address displayed on the Contact page',
             'footerDescription': 'Displayed in the website footer across all pages',
         }
+
+
+class FAQItemForm(forms.ModelForm):
+    class Meta:
+        model = FAQItem
+        fields = ["question", "answer", "display_order", "is_active"]
+        widgets = {
+            "question": forms.TextInput(
+                attrs={"class": "form-control", "maxlength": "255", "placeholder": "Enter FAQ question"}
+            ),
+            "display_order": forms.NumberInput(
+                attrs={"class": "form-control", "min": "0", "placeholder": "Display order"}
+            ),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["question"].required = False
+        self.fields["answer"].required = False
+        self.fields["display_order"].required = False
+        self.fields["is_active"].required = False
+
+
+class BaseFAQFormSet(forms.BaseModelFormSet):
+    def clean(self):
+        super().clean()
+        if any(self.errors):
+            return
+
+        for form in self.forms:
+            cleaned = getattr(form, "cleaned_data", None)
+            if not cleaned:
+                continue
+            if cleaned.get("DELETE"):
+                continue
+
+            question = (cleaned.get("question") or "").strip()
+            answer = (cleaned.get("answer") or "").strip()
+            has_content = bool(question or answer)
+
+            if not has_content:
+                # Empty rows are allowed for unused extra forms.
+                continue
+
+            if not question:
+                form.add_error("question", "Question is required when an answer is provided.")
+            if not answer:
+                form.add_error("answer", "Answer is required when a question is provided.")
+
+            order = cleaned.get("display_order")
+            if order is not None and order < 0:
+                form.add_error("display_order", "Display order cannot be negative.")
+
+
+FAQFormSet = modelformset_factory(
+    FAQItem,
+    form=FAQItemForm,
+    formset=BaseFAQFormSet,
+    can_delete=True,
+    extra=0,
+)

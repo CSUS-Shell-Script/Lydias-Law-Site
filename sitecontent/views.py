@@ -1,8 +1,9 @@
 from django.shortcuts import render
-from .models import WebsiteContent
+from .models import WebsiteContent, FAQItem
 from django.contrib.auth import get_user_model
 from django.http import HttpResponseServerError
 from django.conf import settings
+
 
 # Create your views here.
 
@@ -23,12 +24,14 @@ def home(request):
             )
 
         role = request.GET.get("role", "guest") # Check URLs in core.
+        faqs = FAQItem.objects.filter(is_active=True).order_by("display_order", "id")
 
         # Render the normal about page
         return render(request, 'home.html', {
             "role": role,
             "GOOGLE_MAPS_API_KEY": settings.GOOGLE_MAPS_API_KEY,            
             'content': content,
+            "faqs": faqs,
         })
 
     except Exception as e:

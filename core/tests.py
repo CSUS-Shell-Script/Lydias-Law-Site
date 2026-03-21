@@ -1,13 +1,291 @@
 from datetime import timedelta
+from datetime import timedelta
 
 from django.contrib.messages import get_messages
-from django.test import TestCase
+from django.test import TestCase, Client
 from django.urls import reverse
 from django.utils import timezone
+from django.utils import timezone
 
+from sitecontent.models import WebsiteContent
 from appointments.models import Appointments, Invitee
+from sitecontent.models import FAQItem, WebsiteContent
 from users.models import User
+from django.contrib.auth import get_user_model
+from finances.models import Invoice
+from allauth.account.models import EmailAddress
 
+User = get_user_model()
+
+############################### Public pages ###############################
+
+# Public page tests (LLW-276)
+class PublicPagesTestCase(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+
+        # Create website content (temporary databse)
+        WebsiteContent.objects.create(
+
+            # Home page temporary database for test
+            frontPageHeader = "Home page heading",
+            frontPageDescription = "Mission Statement",
+
+            # Practice page temporary database for test
+            stepParentAdoptionDescription="Step-parent adoption description",
+            adultAdoptionDescription="Adult adoption description",
+            guardianshipDescription="Guardianship description",
+            guardianshipToAdoptionDescription="Guardianship to adoption description",
+            independentAdoptionDescription="Independent adoption description",
+        )
+
+    # Django made client account
+    def setUp(self):
+        self.client = Client()
+
+    # Test: Home page returns 200
+    def test_home_page_returns_200(self):
+        response = self.client.get(reverse('home'))
+        self.assertEqual(response.status_code, 200)
+
+    # Test: Home page uses correct template
+    def test_home_page_uses_correct_template(self):
+        response = self.client.get(reverse('home'))
+        self.assertTemplateUsed(response, 'home.html')
+
+    # Test: Home page contains header text
+    def test_home_page_heading_text(self):
+        response = self.client.get(reverse('home'))
+        self.assertTemplateUsed(response, 'home.html')
+
+    # Test: Home page contains mission statement
+    def test_home_page_contains_mission_statement(self):
+        response = self.client.get(reverse('home'))
+        self.assertContains(response, 'Home page heading')
+
+    # Test: About page returns 200
+    def test_about_page_returns_200(self):
+        response = self.client.get(reverse('about'))
+        self.assertEqual(response.status_code, 200)
+
+    # Test: About page conatins biography
+    def test_about_page_contains_biography_section(self):
+        response = self.client.get(reverse('about'))
+        self.assertContains(response, 'About Lydia A. Suprun')
+
+    # Test: Practice Areas page returns 200
+    def test_practice_areas_page_returns_200(self):
+        response = self.client.get(reverse('practice_areas'))
+        self.assertEqual(response.status_code, 200)
+
+   # Test: Practice Areas page contains all 5 practice areas :
+    # (Step-Parent, Adult, Guardianship, Guardianship-to-Adoption, Independent)
+    def test_practice_areas_page_contains_all_practice_areas(self):
+        response = self.client.get(reverse('practice_areas'))
+        self.assertContains(response, 'Step-Parent Adoption')
+        self.assertContains(response, 'Adult Adoption')
+        self.assertContains(response, 'Guardianship')
+        self.assertContains(response, 'Guardianship to Adoption')
+        self.assertContains(response, 'Independent Adoption')
+
+    # Test: Contact page returns 200
+    def test_contact_page_returns_200(self):
+        response = self.client.get(reverse('contact'))
+        self.assertEqual(response.status_code, 200)
+
+    # Test: Payment (invoice lookup) page returns 200
+    def test_payment_page_returns_200(self):
+        response = self.client.get(reverse('payment'))
+        self.assertEqual(response.status_code, 200)
+
+    # Test: Privacy page returns 200
+    def test_privacy_page_returns_200(self):
+        response = self.client.get(reverse('privacy'))
+        self.assertEqual(response.status_code, 200)
+
+# Test For Public Nav Bar - 277
+class PublicNavbarTests(TestCase):
+    def test_public_nav_contains_expected_links(self):
+       # Access public page -> home
+        response = self.client.get(reverse('home'))
+
+        # Nav Contains logo linking to home page
+        self.assertContains(response, 'href="/"')
+
+        # Nav contains links to diff pages -> about, payment, contact, login ...
+        self.assertContains(response, 'Practice Areas')
+        self.assertContains(response, 'About')
+        self.assertContains(response, 'Contact')
+        self.assertContains(response, 'Privacy Policy')
+        self.assertContains(response, 'Payment')
+        self.assertContains(response, 'Login')
+        
+        # Nav does NOT show dashboard, logout, transaction history
+        self.assertNotContains(response, 'Dashboard')
+        self.assertNotContains(response, 'Logout')
+        self.assertNotContains(response, 'Transaction History')    
+
+# Template Content Verification Test - LLW 301
+class TemplateContentVerificationTest(TestCase):
+    def setUp(self):
+        self.client = Client()
+
+        # Required by home, practice area, and about views
+        self.content = WebsiteContent.objects.create(
+            frontPageHeader="Test Header",
+            frontPageDescription="Test Description",
+        )
+
+        # 4 FAQ pairs 
+        FAQItem.objects.create(question="Question 1", answer="Answer 1", display_order=1, is_active=True)
+        FAQItem.objects.create(question="Question 2", answer="Answer 2", display_order=2, is_active=True)
+        FAQItem.objects.create(question="Question 3", answer="Answer 3", display_order=3, is_active=True)
+        FAQItem.objects.create(question="Question 4", answer="Answer 4", display_order=4, is_active=True)
+
+    # Home page
+    def test_home_page_contains_faq_section(self):
+        response = self.client.get(reverse("home"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Frequently Asked Questions")
+        self.assertContains(response, "faqAccordion")
+
+    def test_home_page_conatins_four_faq_pairs(self):
+        response = self.client.get(reverse("home"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Question 1")
+        self.assertContains(response, "Answer 1")
+        self.assertContains(response, "Question 2")
+        self.assertContains(response, "Answer 2")
+        self.assertContains(response, "Question 3")
+        self.assertContains(response, "Answer 3")
+        self.assertContains(response, "Question 4")
+        self.assertContains(response, "Answer 4")
+    
+    def test_home_page_contains_services_list_with_practice_area_links(self):
+        response = self.client.get(reverse("home"))
+        self.assertEqual(response.status_code, 200)
+
+        # 5 Service img buttons link to practice areas
+        self.assertContains(response, "Step-Parent Adoption")
+        self.assertContains(response, "Adult Adoption")
+        self.assertContains(response, "Guardianship")
+        self.assertContains(response, "Guardianship to Adoption")
+        self.assertContains(response, "Independent Adoption")
+        self.assertContains(response, "practice-areas")
+
+    def test_home_page_contains_map_section(self):
+        response = self.client.get(reverse("home"))
+        self.assertEqual(response.status_code, 200)
+
+        # Google maps iframe is always present regardless of API key value
+        self.assertContains(response, "google.com/maps/embed")
+        self.assertContains(response, "601+University+Ave+Sacramento+CA")        
+
+    # About Page
+    def test_about_page_loads(self):
+        response = self.client.get(reverse("about"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "About Lydia A. Suprun")
+
+    def test_about_page_has_image_placeholder(self):
+        response = self.client.get(reverse("about"))
+        # Photo is commented out = verify img container is present
+        response = self.client.get(reverse("about"))
+        self.assertContains(response, "about-image")
+
+    def test_about_page_contains_linkedin_link(self):
+        response = self.client.get(reverse("about"))
+        self.assertContains(response, "linkedin.com/in/lydia-suprun")
+
+    # Practice Areas Page
+    def test_practice_areas_page_contains_contact_links(self):
+        response = self.client.get(reverse("practice_areas"))
+        self.assertEqual(response.status_code, 200)
+        # 'Book Appointment' button links to contact page
+        self.assertContains(response, reverse("contact"))
+        self.assertContains(response, "Book Appointment")
+
+############################### Client pages ###############################
+
+# Client Dashbaord test (LLW-279)
+class ClientDashboardTests(TestCase):
+    def setUp(self):
+
+        # Make client user
+        self.user = User.objects.create_user(
+            email="client@example.com",
+            password="pass",
+            first_name="Jane",
+            last_name="Doe",
+            phone_number="5551234567",
+            is_active=True,
+        )
+
+        # Create invoice object for client user (for 'Amount Due' on dashboard)
+        self.invoice = Invoice.objects.create(
+            user=self.user,
+            amount=12300,
+        )
+
+        # Create appointments for client user
+        now = timezone.now()
+        self.appt1 = Appointments.objects.create(
+            user_id=self.user,
+            start_time=now + timedelta(days=1),
+            comments="Appointment 1",
+            approved=True,
+        )
+        self.appt2 = Appointments.objects.create(
+            user_id=self.user,
+            start_time=now + timedelta(days=2),
+            comments="Appointment 2",
+            approved=True,
+        )
+        self.appt3 = Appointments.objects.create(
+            user_id=self.user,
+            start_time=now + timedelta(days=3),
+            comments="Appointment 3",
+            approved=True,
+        )
+        self.appt4 = Appointments.objects.create(
+            user_id=self.user,
+            start_time=now + timedelta(days=4),
+            comments="Appointment 4",
+            approved=True,
+        )
+
+    # Test: Dashboard requires login (redirects if not authenticated)
+    def test_dashboard_requires_login(self):
+        response = self.client.get(reverse("client_dashboard"))
+        self.assertEqual(response.status_code, 302)
+
+    # Test: Dashboard returns 200 for authenticated client
+    def test_dashboard_returns_200_for_authenticated_client(self):
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("client_dashboard"))
+        self.assertEqual(response.status_code, 200)
+
+    # Test: Dashboard context includes upcoming appointments (next 3)
+    def test_dashboard_context_includes_next_3_upcoming_appointments(self):
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("client_dashboard"))
+
+        self.assertIn("upcoming_appts", response.context)
+        upcoming = response.context["upcoming_appts"]
+        self.assertEqual(len(upcoming), 3)
+
+    # Test: Dashboard shows amount due / retainer balance
+    def test_dashboard_shows_amount_due(self):
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("client_dashboard"))
+        self.assertContains(response, "Amount Due:")
+        self.assertContains(response, "$123")
+
+    # Test: Dashboard contains link to payment page
+    def test_dashboard_contains_link_to_payment_page(self):
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("client_dashboard"))
+        self.assertContains(response, reverse("client_invoices"))
 
 
 # LLW-248 / LLW-251 — Client account page (backend + validation) testing
@@ -186,6 +464,73 @@ class ClientAccountViewTests(TestCase):
         )
         self.assertIn("That field cannot be updated here.", self._messages(resp))
 
+# CLIENT NAVIGATION BAR TEST - LLW 278
+class ClientNavbarTest(TestCase):
+    def setUp(self):
+        self.client = Client()
+
+
+        WebsiteContent.objects.create(
+            frontPageHeader="Test Header",
+            frontPageDescription="Test Description",
+        )
+
+        # Create Test Client 
+        self.user = User.objects.create_user(
+            email="clientUser@test.com",
+            password="Pass123!",   
+            role=User.Role.CLIENT, 
+            is_active=True,                   
+        )
+
+        EmailAddress.objects.create(
+            user=self.user,
+            email=self.user.email,
+            primary=True,
+            verified=True,
+        )
+
+
+    def test_navbar_for_logged_in_client(self):
+        # Log in the user        
+        self.client.force_login(self.user)
+
+        response = self.client.get("/client/dashboard/", follow=True)        
+        self.assertEqual(response.status_code, 200)
+
+        # Should be visible
+        self.assertContains(response, reverse("client_practice_areas"))
+        self.assertContains(response, reverse("client_about"))
+        self.assertContains(response, reverse("client_contact"))
+        self.assertContains(response, reverse("client_privacy"))
+        self.assertContains(response, reverse("client_dashboard"))
+        self.assertContains(response, reverse("client_invoices"))
+        self.assertContains(response, reverse("client_account"))
+
+        self.assertContains(response, "Logout")
+        self.assertContains(response, 'method="post"')
+
+        # Should NOT be visible
+        self.assertNotContains(response, "/users/login")
+
+    def test_logout_redirects_to_home(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(reverse("logout"))
+
+        self.assertRedirects(response, reverse("home"))
+        # Confirm user is actually logged out
+        response  = self.client.get("/client/dashboard/")
+        self.assertNotEqual(response.status_code, 200)
+
+    def test_logo_links_to_home(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get("/client/dashboard/", follow=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f'href="{reverse("home")}"')
+
+############################### Admin pages ###############################
 
 class AdminAppointmentActionsTests(TestCase):
     def setUp(self):
@@ -534,3 +879,150 @@ class AdminAppointmentHistoryTests(TestCase):
         response = self.client.get(self.url)
 
         self.assertContains(response, "John Doe")
+############################### Admin Editor Page (LLW-289) ###############################
+
+class AdminEditorTests(TestCase):
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.content = WebsiteContent.objects.create(
+            frontPageHeader="Test Header",
+            frontPageDescription="<p>Test description</p>",
+            nameTitle="Lydia A. Suprun",
+            aboutMeDescription="<p>About text</p>",
+            officeLocation="123 Main St",
+            stepParentAdoptionDescription="<p>Step-parent</p>",
+            adultAdoptionDescription="<p>Adult</p>",
+            guardianshipDescription="<p>Guardianship</p>",
+            guardianshipToAdoptionDescription="<p>G to A</p>",
+            independentAdoptionDescription="<p>Independent</p>",
+            footerDescription="<p>Footer</p>",
+        )
+
+    def setUp(self):
+        self.superuser = User.objects.create_user(
+            email="admin@editor.com",
+            password="pw",
+            first_name="Admin",
+            last_name="Editor",
+            is_staff=True,
+            is_superuser=True,
+            is_active=True,
+        )
+        self.regular_user = User.objects.create_user(
+            email="regular@example.com",
+            password="pw",
+            first_name="Regular",
+            last_name="User",
+            is_active=True,
+        )
+
+    # commented out for now bc we aren't enforcing superuser for admin dashboard yet
+    # Test: Editor page requires superuser
+    # def test_editor_requires_superuser(self):
+    #     self.client.force_login(self.regular_user)
+    #     response = self.client.get(reverse('admin_editor'))
+    #     self.assertNotEqual(response.status_code, 200)
+
+    # Test: GET loads current content into form fields
+    def test_get_loads_content_into_form(self):
+        self.client.force_login(self.superuser)
+        response = self.client.get(reverse('admin_editor'))
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'admin/editor.html')
+        form = response.context['form']
+        self.assertEqual(form.initial['frontPageHeader'], "Test Header")
+        self.assertEqual(form.initial['nameTitle'], "Lydia A. Suprun")
+        self.assertEqual(form.initial['officeLocation'], "123 Main St")
+
+    # Test: GET populates all section fields (home, about, practice areas, contact, FAQ, footer)
+    def test_get_populates_all_sections(self):
+        self.client.force_login(self.superuser)
+        response = self.client.get(reverse('admin_editor'))
+        form = response.context['form']
+        self.assertEqual(form.initial['frontPageHeader'], "Test Header")
+        self.assertEqual(form.initial['frontPageDescription'], "<p>Test description</p>")
+        self.assertEqual(form.initial['nameTitle'], "Lydia A. Suprun")
+        self.assertEqual(form.initial['aboutMeDescription'], "<p>About text</p>")
+        self.assertEqual(form.initial['officeLocation'], "123 Main St")
+        self.assertEqual(form.initial['stepParentAdoptionDescription'], "<p>Step-parent</p>")
+        self.assertEqual(form.initial['adultAdoptionDescription'], "<p>Adult</p>")
+        self.assertEqual(form.initial['guardianshipDescription'], "<p>Guardianship</p>")
+        self.assertEqual(form.initial['guardianshipToAdoptionDescription'], "<p>G to A</p>")
+        self.assertEqual(form.initial['independentAdoptionDescription'], "<p>Independent</p>")
+        self.assertEqual(form.initial['footerDescription'], "<p>Footer</p>")
+
+    # Test: POST updates content and creates new version
+    def test_post_updates_content(self):
+        self.client.force_login(self.superuser)
+        post_data = {
+            'frontPageHeader': 'Updated Header',
+            'frontPageDescription': '<p>Updated description</p>',
+            'nameTitle': 'Updated Name',
+            'aboutMeDescription': '<p>Updated about</p>',
+            'officeLocation': 'Updated Location',
+            'stepParentAdoptionDescription': '<p>Updated step-parent</p>',
+            'adultAdoptionDescription': '<p>Updated adult</p>',
+            'guardianshipDescription': '<p>Updated guardianship</p>',
+            'guardianshipToAdoptionDescription': '<p>Updated g to a</p>',
+            'independentAdoptionDescription': '<p>Updated independent</p>',
+            'footerDescription': '<p>Updated footer</p>',
+        }
+        response = self.client.post(reverse('admin_editor'), post_data)
+        self.assertRedirects(response, reverse('admin_editor'))
+
+        # Verify the content was saved
+        latest = WebsiteContent.objects.order_by('-versionNumber').first()
+        self.assertEqual(latest.frontPageHeader, 'Updated Header')
+        self.assertEqual(latest.footerDescription, '<p>Updated footer</p>')
+
+    # Test: "Update All" saves all sections in one POST
+    def test_update_all_saves_all_sections(self):
+        self.client.force_login(self.superuser)
+        post_data = {
+            'frontPageHeader': 'All Updated Header',
+            'frontPageDescription': '<p>All updated desc</p>',
+            'nameTitle': 'All Updated Name',
+            'aboutMeDescription': '<p>All updated about</p>',
+            'officeLocation': 'All Updated Location',
+            'stepParentAdoptionDescription': '<p>All updated SP</p>',
+            'adultAdoptionDescription': '<p>All updated Adult</p>',
+            'guardianshipDescription': '<p>All updated Guard</p>',
+            'guardianshipToAdoptionDescription': '<p>All updated GtA</p>',
+            'independentAdoptionDescription': '<p>All updated Indep</p>',
+            'footerDescription': '<p>All updated footer</p>',
+        }
+        response = self.client.post(reverse('admin_editor'), post_data)
+        self.assertRedirects(response, reverse('admin_editor'))
+
+        latest = WebsiteContent.objects.order_by('-versionNumber').first()
+        self.assertEqual(latest.frontPageHeader, 'All Updated Header')
+        self.assertEqual(latest.nameTitle, 'All Updated Name')
+        self.assertEqual(latest.officeLocation, 'All Updated Location')
+        self.assertEqual(latest.stepParentAdoptionDescription, '<p>All updated SP</p>')
+        self.assertEqual(latest.adultAdoptionDescription, '<p>All updated Adult</p>')
+        self.assertEqual(latest.guardianshipDescription, '<p>All updated Guard</p>')
+        self.assertEqual(latest.guardianshipToAdoptionDescription, '<p>All updated GtA</p>')
+        self.assertEqual(latest.independentAdoptionDescription, '<p>All updated Indep</p>')
+        self.assertEqual(latest.footerDescription, '<p>All updated footer</p>')
+
+    # Test: Success message "Pages Have Been Updated" shown after save
+    def test_success_message_shown_after_save(self):
+        self.client.force_login(self.superuser)
+        post_data = {
+            'frontPageHeader': 'Msg Test',
+            'frontPageDescription': '',
+            'nameTitle': '',
+            'aboutMeDescription': '',
+            'officeLocation': '',
+            'stepParentAdoptionDescription': '',
+            'adultAdoptionDescription': '',
+            'guardianshipDescription': '',
+            'guardianshipToAdoptionDescription': '',
+            'independentAdoptionDescription': '',
+            'footerDescription': '',
+        }
+        response = self.client.post(reverse('admin_editor'), post_data, follow=True)
+        self.assertEqual(response.status_code, 200)
+        msgs = list(get_messages(response.wsgi_request))
+        self.assertTrue(any('updated successfully' in str(m) for m in msgs))

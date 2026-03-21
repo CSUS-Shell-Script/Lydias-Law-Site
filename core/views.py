@@ -2,18 +2,20 @@
 # essentialy: user interactions -> tangible responses
 
 from django.shortcuts import render, HttpResponse, redirect, get_object_or_404
+from django.http import JsonResponse
 from django.urls import reverse
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.contrib.auth import get_user_model, logout
 from django.core.paginator import Paginator
+from django.db import transaction
 from allauth.account.utils import complete_signup
 from allauth.account import app_settings as allauth_settings
 from allauth.account.adapter import get_adapter
 from allauth.account.models import EmailAddress, EmailConfirmation, get_emailconfirmation_model
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
-from sitecontent.models import WebsiteContent
+from sitecontent.models import WebsiteContent, FAQItem
 from django.conf import settings
 from finances.models import Invoice
 from appointments.models import Appointments, Invitee
@@ -35,7 +37,7 @@ def home(r):
   
 # Is this method 
 def practice_areas(r):
-    content = WebsiteContent.objects.latest('created_at')
+    content = WebsiteContent.objects.order_by("-versionNumber").first()
     return render(r, "practice_areas.html", {"content": content})
 
 def about(r): return render(r, "about.html")
@@ -125,13 +127,13 @@ def admin_clients(request):
         'sort': sort,
     })
 
-# @login_required
+@superuser_required
 def admin_editor(request):
     """
     Admin editor view for editing WebsiteContent.
     Fetches the latest content version and allows editing.
     """
-    from .forms import WebsiteContentForm
+    from .forms import WebsiteContentForm, FAQFormSet
 
     # get the latest WebsiteContent or create default if none exists
     content = WebsiteContent.objects.order_by('-versionNumber').first()
@@ -144,18 +146,45 @@ def admin_editor(request):
 
     if request.method == 'POST':
         form = WebsiteContentForm(request.POST, instance=content)
-        if form.is_valid():
-            form.save()
+        faq_formset = FAQFormSet(request.POST, queryset=FAQItem.objects.all(), prefix="faq")
+
+        if form.is_valid() and faq_formset.is_valid():
+            with transaction.atomic():
+                form.save()
+
+                # save(commit=False) must run first; it populates deleted_objects on ModelFormSet.
+                faq_instances = faq_formset.save(commit=False)
+                for deleted_obj in faq_formset.deleted_objects:
+                    deleted_obj.delete()
+                for instance in faq_instances:
+                    if not instance.pk and not (instance.question or "").strip():
+                        continue
+                    if instance.display_order is None:
+                        instance.display_order = 0
+                    instance.save()
+
+                # Apply deterministic ordering while preserving user-entered order hints.
+                ordered_items = sorted(
+                    FAQItem.objects.all(),
+                    key=lambda item: (item.display_order if item.display_order is not None else 10**9, item.id),
+                )
+                for index, item in enumerate(ordered_items, start=1):
+                    if item.display_order != index:
+                        item.display_order = index
+                        item.save(update_fields=["display_order"])
+
             messages.success(request, 'Website content updated successfully!')
             return redirect('admin_editor')
         else:
             messages.error(request, 'Please correct the errors below.')
     else:
         form = WebsiteContentForm(instance=content)
+        faq_formset = FAQFormSet(queryset=FAQItem.objects.all(), prefix="faq")
 
     return render(request, "admin/editor.html", {
         'form': form,
         'content': content,
+        'faq_formset': faq_formset,
     })
 # @superuser_required
 def admin_history(r): return render(r, "admin/history.html")
@@ -211,6 +240,7 @@ def admin_appointment_detail(request, pk):
 @require_POST
 @superuser_required
 def admin_appointment_cancel(request, pk):
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
 
     appointment = get_object_or_404(
         Appointments.objects.prefetch_related("invitees"),
@@ -218,11 +248,15 @@ def admin_appointment_cancel(request, pk):
     )
 
     if appointment.status not in (Appointments.Status.PENDING, Appointments.Status.CONFIRMED):
+        if is_ajax:
+            return JsonResponse({"error": "Only Pending or Confirmed appointments can be cancelled."}, status=400)
         messages.warning(request, "Only Pending or Confirmed appointments can be cancelled.")
         return redirect(request.POST.get("next") or reverse("admin_appointment_detail", args=[pk]))
 
     reason = (request.POST.get("reason") or "").strip()
     if not reason:
+        if is_ajax:
+            return JsonResponse({"error": "Cancellation reason is required."}, status=400)
         messages.error(request, "Cancellation reason is required.")
         return redirect(request.POST.get("next") or reverse("admin_appointment_detail", args=[pk]))
 
@@ -235,34 +269,47 @@ def admin_appointment_cancel(request, pk):
     appointment.invitees.update(canceled=True, cancellation_reason=reason)
 
     # Best-effort Calendly cancellation (feature-flagged / offline-safe)
+    calendly_warning = None
     if appointment.calendly_event_uri:
         try:
             from appointments.calendly import cancel_scheduled_event, calendly_api_enabled
 
             if not calendly_api_enabled():
-                messages.info(
-                    request,
-                    "Calendly cancellation skipped (site not live yet — expected).",
-                )
+                calendly_warning = "Calendly cancellation skipped (site not live yet — expected)."
             else:
                 ok = cancel_scheduled_event(
                     calendly_event_uri=appointment.calendly_event_uri,
                     cancellation_reason=reason,
                 )
                 if not ok:
-                    messages.warning(
-                        request,
-                        "Appointment cancelled locally. Calendly cancellation failed (best effort).",
-                    )
+                    calendly_warning = "Calendly cancellation failed (best effort)."
         except Exception:
-            # Never block local cancellation on Calendly issues
-            messages.warning(
-                request,
-                "Appointment cancelled locally. Calendly cancellation was skipped/failed (expected if site isn't live yet).",
-            )
+            calendly_warning = "Calendly cancellation was skipped/failed (expected if site isn't live yet)."
 
+    if is_ajax:
+        data = {"success": True, "status": "CANCELLED", "status_display": "Cancelled"}
+        if calendly_warning:
+            data["warning"] = calendly_warning
+        return JsonResponse(data)
+
+    if calendly_warning:
+        messages.warning(request, f"Appointment cancelled locally. {calendly_warning}")
     messages.success(request, "Appointment cancelled.")
     return redirect(request.POST.get("next") or reverse("admin_appointment_detail", args=[pk]))
+
+
+@require_POST
+@superuser_required
+def admin_appointment_accept(request, pk):
+    appointment = get_object_or_404(Appointments, pk=pk)
+
+    if appointment.status != Appointments.Status.PENDING:
+        return JsonResponse({"error": "Only Pending appointments can be accepted."}, status=400)
+
+    appointment.status = Appointments.Status.CONFIRMED
+    appointment.save(update_fields=["status"])
+
+    return JsonResponse({"success": True, "status": "CONFIRMED", "status_display": "Confirmed"})
 
 
 @require_POST
@@ -406,7 +453,7 @@ def client_contact(r): return render(r, "client/contact.html")
 #def client_payment(r): return render(r, "client/payment.html")
 #@login_required
 def client_practice_areas(r):
-    content = WebsiteContent.objects.latest('created_at')
+    content = WebsiteContent.objects.order_by("-versionNumber").first()
     return render(r, "client/practice_areas.html", {"content": content})
 
 @login_required
