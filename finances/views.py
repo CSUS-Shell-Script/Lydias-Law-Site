@@ -15,9 +15,10 @@ from core.decorators import superuser_required
 
 import stripe
 from users.models import User
-from .models import Invoice, StripeWebhookEvent
+from .models import Invoice, StripeWebhookEvent, Payment
 from django.contrib import messages
 from django.contrib.messages import get_messages
+from django.utils import timezone
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
 
@@ -141,10 +142,30 @@ def stripe_webhook(request):
             # Paid means the invoice is complete.
             invoice.status = Invoice.Status.PAID
             invoice.paid = True
+            
+            # Create Payment record for successful payment.
+            # This one makes sense to make.
+            Payment.objects.create(
+                user=invoice.user,
+                amount=invoice.amount,
+                currency="USD",
+                status=Payment.Status.SUCCESS,
+                paid_at=timezone.now()
+            )
         elif event_type == "invoice.payment_failed":
             # Payment failed means the invoice is still unpaid.
             invoice.status = Invoice.Status.PAYMENT_FAILED
             invoice.paid = False
+            
+            # Create Payment record for failed payment.
+            # Unsure if this is needed but added it since a test case required it.
+            Payment.objects.create(
+                user=invoice.user,
+                amount=invoice.amount,
+                currency="USD", 
+                status=Payment.Status.FAILED,
+                paid_at=timezone.now()
+            )
         elif event_type == "invoice.voided":
             invoice.status = Invoice.Status.VOIDED
             invoice.paid = False

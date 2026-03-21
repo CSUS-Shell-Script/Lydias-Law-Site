@@ -43,6 +43,8 @@ class PublicPagesTestCase(TestCase):
     def setUp(self):
         self.client = Client()
 
+    ############################### Home page ###############################
+
     # Test: Home page returns 200
     def test_home_page_returns_200(self):
         response = self.client.get(reverse('home'))
@@ -63,6 +65,8 @@ class PublicPagesTestCase(TestCase):
         response = self.client.get(reverse('home'))
         self.assertContains(response, 'Home page heading')
 
+    ############################### About page ###############################
+
     # Test: About page returns 200
     def test_about_page_returns_200(self):
         response = self.client.get(reverse('about'))
@@ -72,6 +76,8 @@ class PublicPagesTestCase(TestCase):
     def test_about_page_contains_biography_section(self):
         response = self.client.get(reverse('about'))
         self.assertContains(response, 'About Lydia A. Suprun')
+    
+    ############################### Practice Areas page ###############################
 
     # Test: Practice Areas page returns 200
     def test_practice_areas_page_returns_200(self):
@@ -87,16 +93,98 @@ class PublicPagesTestCase(TestCase):
         self.assertContains(response, 'Guardianship')
         self.assertContains(response, 'Guardianship to Adoption')
         self.assertContains(response, 'Independent Adoption')
+    
+    ############################### Contact page ###############################
 
     # Test: Contact page returns 200
     def test_contact_page_returns_200(self):
         response = self.client.get(reverse('contact'))
         self.assertEqual(response.status_code, 200)
 
+    ############################### Payment page ###############################
+
     # Test: Payment (invoice lookup) page returns 200
     def test_payment_page_returns_200(self):
         response = self.client.get(reverse('payment'))
         self.assertEqual(response.status_code, 200)
+
+    # Test: Payment page POST requires invoice ID
+    def test_payment_page_post_requires_invoice_id(self):
+        response = self.client.post(reverse('payment'), {})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Incorrect Invoice ID.", response.content.decode())
+
+    # Test: Payment page POST with invalid invoice ID (non-digit) shows error
+    def test_payment_page_post_invalid_invoice_id_non_digit(self):
+        response = self.client.post(reverse('payment'), {'invoice_id': 'abc'})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Incorrect Invoice ID.", response.content.decode())
+
+    # Test: Payment page POST with invalid invoice ID (not exists) shows error
+    def test_payment_page_post_invalid_invoice_id_not_exists(self):
+        response = self.client.post(reverse('payment'), {'invoice_id': '99999'})
+        self.assertEqual(response.status_code, 404)
+        self.assertIn("Incorrect Invoice ID.", response.content.decode())
+
+    # Test: Payment page POST with valid invoice ID redirects to checkout
+    def test_payment_page_post_valid_invoice_id_redirects(self):
+        user = User.objects.create_user(email='test@example.com', password='pass')
+        invoice = Invoice.objects.create(user=user, amount=1000)
+        response = self.client.post(reverse('payment'), {'invoice_id': str(invoice.id)})
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response['Location'], reverse('create_checkout_session', args=[invoice.id]))
+
+    # Test: Payment page POST with already-paid invoice shows appropriate error
+    def test_payment_page_post_paid_invoice_shows_error(self):
+        user = User.objects.create_user(email='paid@example.com', password='pass')
+        invoice = Invoice.objects.create(user=user, amount=1000, status=Invoice.Status.PAID, paid=True)
+        response = self.client.post(reverse('payment'), {'invoice_id': str(invoice.id)}, follow=True)
+        self.assertRedirects(response, reverse('payment'))
+        messages = list(response.context['messages'])
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(str(messages[0]), "This invoice has already been paid. Thank You!")
+        self.assertEqual(messages[0].level, 30)
+
+    # Payment Success page #
+
+    # Test: Payment success page renders with order summary
+    def test_payment_success_page_renders_with_order_summary(self):
+        response = self.client.get(reverse('payment_success'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Order Summary')
+
+    # Test: Payment success shows "Payment Confirmed" message
+    def test_payment_success_shows_payment_confirmed_message(self):
+        response = self.client.get(reverse('payment_success'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Payment Confirmed!')
+
+    # Test: Payment success contains close/return button
+    def test_payment_success_contains_close_button(self):
+        response = self.client.get(reverse('payment_success'))
+        self.assertEqual(response.status_code, 200)
+        # Check for essential button attributes rather than exact HTML structure.
+        self.assertContains(response, 'href="/"')
+        self.assertContains(response, '>Close</a>')
+        self.assertContains(response, 'btn')
+
+    # Payment Failure page #
+
+    # Test: Transaction failure page renders
+    def test_transaction_failure_page_renders(self):
+        response = self.client.get(reverse('payment_failure'))
+        self.assertEqual(response.status_code, 200)
+
+    # Test: Retry button present on failure page
+    def test_retry_button_present_on_failure_page(self):
+        response = self.client.get(reverse('payment_failure'))
+        self.assertEqual(response.status_code, 200)
+        # Check for essential button attributes rather than exact HTML structure.
+        self.assertContains(response, 'href="/payment/"')
+        self.assertContains(response, '>Retry Payment</a>')
+        self.assertContains(response, 'btn')
+
+    ############################### Privacy page ###############################
 
     # Test: Privacy page returns 200
     def test_privacy_page_returns_200(self):
