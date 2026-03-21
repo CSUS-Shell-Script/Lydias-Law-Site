@@ -43,6 +43,29 @@ class PublicPagesTestCase(TestCase):
     def setUp(self):
         self.client = Client()
 
+    ############################# Navigation Bar #############################
+    # Test For Public Nav Bar - 277
+class PublicNavbarTests(TestCase):
+    def test_public_nav_contains_expected_links(self):
+       # Access public page -> home
+        response = self.client.get(reverse('home'))
+
+        # Nav Contains logo linking to home page
+        self.assertContains(response, 'href="/"')
+
+        # Nav contains links to diff pages -> about, payment, contact, login ...
+        self.assertContains(response, 'Practice Areas')
+        self.assertContains(response, 'About')
+        self.assertContains(response, 'Contact')
+        self.assertContains(response, 'Privacy Policy')
+        self.assertContains(response, 'Payment')
+        self.assertContains(response, 'Login')
+        
+        # Nav does NOT show dashboard, logout, transaction history
+        self.assertNotContains(response, 'Dashboard')
+        self.assertNotContains(response, 'Logout')
+        self.assertNotContains(response, 'Transaction History')    
+
     ############################### Home page ###############################
 
     # Test: Home page returns 200
@@ -190,108 +213,6 @@ class PublicPagesTestCase(TestCase):
     def test_privacy_page_returns_200(self):
         response = self.client.get(reverse('privacy'))
         self.assertEqual(response.status_code, 200)
-
-# Test For Public Nav Bar - 277
-class PublicNavbarTests(TestCase):
-    def test_public_nav_contains_expected_links(self):
-       # Access public page -> home
-        response = self.client.get(reverse('home'))
-
-        # Nav Contains logo linking to home page
-        self.assertContains(response, 'href="/"')
-
-        # Nav contains links to diff pages -> about, payment, contact, login ...
-        self.assertContains(response, 'Practice Areas')
-        self.assertContains(response, 'About')
-        self.assertContains(response, 'Contact')
-        self.assertContains(response, 'Privacy Policy')
-        self.assertContains(response, 'Payment')
-        self.assertContains(response, 'Login')
-        
-        # Nav does NOT show dashboard, logout, transaction history
-        self.assertNotContains(response, 'Dashboard')
-        self.assertNotContains(response, 'Logout')
-        self.assertNotContains(response, 'Transaction History')    
-
-# Template Content Verification Test - LLW 301
-class TemplateContentVerificationTest(TestCase):
-    def setUp(self):
-        self.client = Client()
-
-        # Required by home, practice area, and about views
-        self.content = WebsiteContent.objects.create(
-            frontPageHeader="Test Header",
-            frontPageDescription="Test Description",
-        )
-
-        # 4 FAQ pairs 
-        FAQItem.objects.create(question="Question 1", answer="Answer 1", display_order=1, is_active=True)
-        FAQItem.objects.create(question="Question 2", answer="Answer 2", display_order=2, is_active=True)
-        FAQItem.objects.create(question="Question 3", answer="Answer 3", display_order=3, is_active=True)
-        FAQItem.objects.create(question="Question 4", answer="Answer 4", display_order=4, is_active=True)
-
-    # Home page
-    def test_home_page_contains_faq_section(self):
-        response = self.client.get(reverse("home"))
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Frequently Asked Questions")
-        self.assertContains(response, "faqAccordion")
-
-    def test_home_page_conatins_four_faq_pairs(self):
-        response = self.client.get(reverse("home"))
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Question 1")
-        self.assertContains(response, "Answer 1")
-        self.assertContains(response, "Question 2")
-        self.assertContains(response, "Answer 2")
-        self.assertContains(response, "Question 3")
-        self.assertContains(response, "Answer 3")
-        self.assertContains(response, "Question 4")
-        self.assertContains(response, "Answer 4")
-    
-    def test_home_page_contains_services_list_with_practice_area_links(self):
-        response = self.client.get(reverse("home"))
-        self.assertEqual(response.status_code, 200)
-
-        # 5 Service img buttons link to practice areas
-        self.assertContains(response, "Step-Parent Adoption")
-        self.assertContains(response, "Adult Adoption")
-        self.assertContains(response, "Guardianship")
-        self.assertContains(response, "Guardianship to Adoption")
-        self.assertContains(response, "Independent Adoption")
-        self.assertContains(response, "practice-areas")
-
-    def test_home_page_contains_map_section(self):
-        response = self.client.get(reverse("home"))
-        self.assertEqual(response.status_code, 200)
-
-        # Google maps iframe is always present regardless of API key value
-        self.assertContains(response, "google.com/maps/embed")
-        self.assertContains(response, "601+University+Ave+Sacramento+CA")        
-
-    # About Page
-    def test_about_page_loads(self):
-        response = self.client.get(reverse("about"))
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "About Lydia A. Suprun")
-
-    def test_about_page_has_image_placeholder(self):
-        response = self.client.get(reverse("about"))
-        # Photo is commented out = verify img container is present
-        response = self.client.get(reverse("about"))
-        self.assertContains(response, "about-image")
-
-    def test_about_page_contains_linkedin_link(self):
-        response = self.client.get(reverse("about"))
-        self.assertContains(response, "linkedin.com/in/lydia-suprun")
-
-    # Practice Areas Page
-    def test_practice_areas_page_contains_contact_links(self):
-        response = self.client.get(reverse("practice_areas"))
-        self.assertEqual(response.status_code, 200)
-        # 'Book Appointment' button links to contact page
-        self.assertContains(response, reverse("contact"))
-        self.assertContains(response, "Book Appointment")
 
 ############################### Client pages ###############################
 
@@ -1114,3 +1035,237 @@ class AdminEditorTests(TestCase):
         self.assertEqual(response.status_code, 200)
         msgs = list(get_messages(response.wsgi_request))
         self.assertTrue(any('updated successfully' in str(m) for m in msgs))
+
+############################### Template Pages Tests ###############################
+# Template Inheritance and Structure Test - LLW 300 
+class TemplateInheritanceTest(TestCase):
+    def setUp(self):
+        self.client = Client();
+        
+        self.content = WebsiteContent.objects.create(
+            frontPageHeader ="Test Header",
+            frontPageDescription="Test Description",
+        )
+
+        # 4 FAQ pairs 
+        FAQItem.objects.create(question="Question 1", answer="Answer 1", display_order=1, is_active=True)
+        FAQItem.objects.create(question="Question 2", answer="Answer 2", display_order=2, is_active=True)
+        FAQItem.objects.create(question="Question 3", answer="Answer 3", display_order=3, is_active=True)
+        FAQItem.objects.create(question="Question 4", answer="Answer 4", display_order=4, is_active=True)
+
+        # Admin User
+        self.admin_user = User.objects.create_user(
+            email="admin@test.com",
+            password="Pass123!",
+            role=User.Role.ADMIN,
+            is_active=True,
+            is_staff=True,
+        )       
+
+        EmailAddress.objects.create(
+            user=self.admin_user,
+            email=self.admin_user.email,
+            primary=True,
+            verified=True,
+        )
+
+        # Client user
+        self.client_user = User.objects.create_user(
+            email="client@test.com",
+            password="Pass123!",
+            role=User.Role.CLIENT,
+            is_active=True,
+        )
+        EmailAddress.objects.create(
+            user=self.client_user,
+            email=self.client_user.email,
+            primary=True,
+            verified=True,
+        )
+
+    # Public pages extend base.html
+    PUBLIC_PAGES = [
+        "home",
+        "practice_areas",
+        "about",
+        "contact",
+        "privacy",
+        "payment",
+    ]
+
+    def test_public_pages_use_base_template(self):
+        """Public pages extend base.html — verified by presence of public footer."""
+        for url_name in self.PUBLIC_PAGES:
+            with self.subTest(page=url_name):
+                response = self.client.get(reverse(url_name))
+                self.assertEqual(response.status_code, 200)
+                # Public footer has Practice Areas / About / Contact links
+                # pointing to public URLs — unique to footer.html
+                self.assertContains(response, reverse("practice_areas"),
+                                    msg_prefix=f"Public footer missing on {url_name}")
+
+    # Footer appears on all public pages
+    def test_footer_appears_on_all_public_pages(self):
+        """footer.html is included on every public page."""
+        for url_name in self.PUBLIC_PAGES:
+            with self.subTest(page=url_name):
+                response = self.client.get(reverse(url_name))
+                self.assertEqual(response.status_code, 200)
+                # fixed-bottom footer div is unique to all three footer partials
+                self.assertContains(response, "fixed-bottom bg-white border-top shadow-sm",
+                                    msg_prefix=f"Footer missing on {url_name}")
+
+    # Meta tags / page titles present for SEO
+    def test_public_pages_have_meta_charset(self):
+        """All public pages should have UTF-8 charset meta tag."""
+        for url_name in self.PUBLIC_PAGES:
+            with self.subTest(page=url_name):
+                response = self.client.get(reverse(url_name))
+                self.assertContains(response, 'charset="utf-8"')
+
+    def test_public_pages_have_meta_description(self):
+        """All public pages should have a meta description for SEO."""
+        for url_name in self.PUBLIC_PAGES:
+            with self.subTest(page=url_name):
+                response = self.client.get(reverse(url_name))
+                self.assertContains(response, 'name="description"',
+                                    msg_prefix=f"Meta description missing on {url_name}")
+
+    def test_public_pages_have_viewport_meta(self):
+        """All public pages should have a viewport meta tag."""
+        for url_name in self.PUBLIC_PAGES:
+            with self.subTest(page=url_name):
+                response = self.client.get(reverse(url_name))
+                self.assertContains(response, 'name="viewport"',
+                                    msg_prefix=f"Viewport meta tag missing on {url_name}")
+
+    def test_home_page_has_default_title(self):
+        """Home page should have the default SEO title from base.html."""
+        response = self.client.get(reverse("home"))
+        self.assertContains(response, "Lydia A. Suprun")
+
+    # Admin pages extend base_admin.html
+    def test_admin_pages_use_base_admin_template(self):
+        """Admin pages extend base_admin.html — verified by presence of admin footer."""
+        self.client.force_login(self.admin_user)
+        response = self.client.get(reverse("admin_dashboard"))
+        self.assertEqual(response.status_code, 200)
+        # Admin footer uniquely contains these links — not in public or client footer
+        self.assertContains(response, reverse("admin_dashboard"))
+        self.assertContains(response, reverse("admin_clients"))
+        self.assertContains(response, reverse("admin_editor"))
+
+    def test_admin_pages_have_admin_footer(self):
+        """Admin footer should appear on admin pages."""
+        self.client.force_login(self.admin_user)
+        response = self.client.get(reverse("admin_dashboard"))
+        self.assertContains(response, "fixed-bottom bg-white border-top shadow-sm")
+        # Admin footer has Create Invoice — not in any other footer
+        self.assertContains(response, "Create Invoice")
+
+    # Client pages extend base_client.html
+    def test_client_pages_use_base_client_template(self):
+        """Client pages extend base_client.html — verified by presence of client footer."""
+        self.client.force_login(self.client_user)
+        response = self.client.get(reverse("client_dashboard"), follow=True)
+        self.assertEqual(response.status_code, 200)
+        # Client footer uniquely contains these links — not in public or admin footer
+        self.assertContains(response, reverse("client_dashboard"))
+        self.assertContains(response, reverse("client_invoices"))
+        self.assertContains(response, reverse("client_account"))
+
+    def test_client_pages_have_client_footer(self):
+        """Client footer should appear on all client pages."""
+        self.client.force_login(self.client_user)
+        CLIENT_PAGES = [
+            reverse("client_about"),
+            reverse("client_contact"),
+            reverse("client_privacy"),
+            reverse("client_dashboard"),
+        ]
+        for url in CLIENT_PAGES:
+            with self.subTest(url=url):
+                response = self.client.get(url, follow=True)
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, "fixed-bottom bg-white border-top shadow-sm",
+                                    msg_prefix=f"Client footer missing on {url}")
+                
+# Template Content Verification Test - LLW 301
+class TemplateContentVerificationTest(TestCase):
+    def setUp(self):
+        self.client = Client()
+
+        # Required by home, practice area, and about views
+        self.content = WebsiteContent.objects.create(
+            frontPageHeader="Test Header",
+            frontPageDescription="Test Description",
+        )
+
+        # 4 FAQ pairs 
+        FAQItem.objects.create(question="Question 1", answer="Answer 1", display_order=1, is_active=True)
+        FAQItem.objects.create(question="Question 2", answer="Answer 2", display_order=2, is_active=True)
+        FAQItem.objects.create(question="Question 3", answer="Answer 3", display_order=3, is_active=True)
+        FAQItem.objects.create(question="Question 4", answer="Answer 4", display_order=4, is_active=True)
+
+    # Home page
+    def test_home_page_contains_faq_section(self):
+        response = self.client.get(reverse("home"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Frequently Asked Questions")
+        self.assertContains(response, "faqAccordion")
+
+    def test_home_page_conatins_four_faq_pairs(self):
+        response = self.client.get(reverse("home"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Question 1")
+        self.assertContains(response, "Answer 1")
+        self.assertContains(response, "Question 2")
+        self.assertContains(response, "Answer 2")
+        self.assertContains(response, "Question 3")
+        self.assertContains(response, "Answer 3")
+        self.assertContains(response, "Question 4")
+        self.assertContains(response, "Answer 4")
+    
+    def test_home_page_contains_services_list_with_practice_area_links(self):
+        response = self.client.get(reverse("home"))
+        self.assertEqual(response.status_code, 200)
+
+        # 5 Service img buttons link to practice areas
+        self.assertContains(response, "Step-Parent Adoption")
+        self.assertContains(response, "Adult Adoption")
+        self.assertContains(response, "Guardianship")
+        self.assertContains(response, "Guardianship to Adoption")
+        self.assertContains(response, "Independent Adoption")
+        self.assertContains(response, "practice-areas")
+
+    def test_home_page_contains_map_section(self):
+        response = self.client.get(reverse("home"))
+        self.assertEqual(response.status_code, 200)
+
+        # Google maps iframe is always present regardless of API key value
+        self.assertContains(response, "google.com/maps/embed")
+        self.assertContains(response, "601+University+Ave+Sacramento+CA")        
+
+    # About Page
+    def test_about_page_loads(self):
+        response = self.client.get(reverse("about"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "About Lydia A. Suprun")
+
+    def test_about_page_has_image_placeholder(self):
+        response = self.client.get(reverse("about"))
+        # Photo is commented out = verify img container is present
+        response = self.client.get(reverse("about"))
+        self.assertContains(response, "about-image")
+
+    def test_about_page_contains_linkedin_link(self):
+        response = self.client.get(reverse("about"))
+        self.assertContains(response, "linkedin.com/in/lydia-suprun")
+
+    # Practice Areas Page
+    def test_practice_areas_page_contains_contact_links(self):
+        response = self.client.get(reverse("practice_areas"))
+        self.assertEqual(response.status_code, 200)
+        # 'Book Appointment' button links to contact page
+        self.assertContains(response, reverse("contact"))
+        self.assertContains(response, "Book Appointment")
