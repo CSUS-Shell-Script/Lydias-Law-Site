@@ -41,30 +41,7 @@ class PublicPagesTestCase(TestCase):
 
     # Django made client account
     def setUp(self):
-        self.client = Client()
-
-    ############################# Navigation Bar #############################
-    # Test For Public Nav Bar - 277
-class PublicNavbarTests(TestCase):
-    def test_public_nav_contains_expected_links(self):
-       # Access public page -> home
-        response = self.client.get(reverse('home'))
-
-        # Nav Contains logo linking to home page
-        self.assertContains(response, 'href="/"')
-
-        # Nav contains links to diff pages -> about, payment, contact, login ...
-        self.assertContains(response, 'Practice Areas')
-        self.assertContains(response, 'About')
-        self.assertContains(response, 'Contact')
-        self.assertContains(response, 'Privacy Policy')
-        self.assertContains(response, 'Payment')
-        self.assertContains(response, 'Login')
-        
-        # Nav does NOT show dashboard, logout, transaction history
-        self.assertNotContains(response, 'Dashboard')
-        self.assertNotContains(response, 'Logout')
-        self.assertNotContains(response, 'Transaction History')    
+        self.client = Client()   
 
     ############################### Home page ###############################
 
@@ -213,6 +190,29 @@ class PublicNavbarTests(TestCase):
     def test_privacy_page_returns_200(self):
         response = self.client.get(reverse('privacy'))
         self.assertEqual(response.status_code, 200)
+
+############################# Navigation Bar #############################
+# Test For Public Nav Bar - 277
+class PublicNavbarTests(TestCase):
+    def test_public_nav_contains_expected_links(self):
+       # Access public page -> home
+        response = self.client.get(reverse('home'))
+
+        # Nav Contains logo linking to home page
+        self.assertContains(response, 'href="/"')
+
+        # Nav contains links to diff pages -> about, payment, contact, login ...
+        self.assertContains(response, 'Practice Areas')
+        self.assertContains(response, 'About')
+        self.assertContains(response, 'Contact')
+        self.assertContains(response, 'Privacy Policy')
+        self.assertContains(response, 'Payment')
+        self.assertContains(response, 'Login')
+        
+        # Nav does NOT show dashboard, logout, transaction history
+        self.assertNotContains(response, 'Dashboard')
+        self.assertNotContains(response, 'Logout')
+        self.assertNotContains(response, 'Transaction History') 
 
 ############################### Client pages ###############################
 
@@ -477,7 +477,6 @@ class ClientAccountViewTests(TestCase):
 class ClientNavbarTest(TestCase):
     def setUp(self):
         self.client = Client()
-
 
         WebsiteContent.objects.create(
             frontPageHeader="Test Header",
