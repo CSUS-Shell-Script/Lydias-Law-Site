@@ -187,11 +187,19 @@ WSGI_APPLICATION = 'Lydias_Law_Site.wsgi.application'
 
 # Uncomment below for MySQL/PostgreSQL in production:
 DATABASES = {
-    "default": dj_database_url.config(
-        default=os.getenv("DATABASE_URL"),
-        engine="django.db.backends.mysql",
-        conn_max_age=600,
-    )
+    "default": {
+        "ENGINE": "django.db.backends.mysql",
+        "NAME": env("DB_NAME"),
+        "USER": env("DB_USER"),
+        "PASSWORD": env("DB_PASSWORD"),
+        "HOST": env("DB_HOST"),
+        "PORT": env("DB_PORT", default="25060"),
+        "OPTIONS": {
+            "ssl": {
+                "ca": env("PATH_TO_CERT"),
+            }
+        },
+    }
 }
 
 if "test" in sys.argv:
