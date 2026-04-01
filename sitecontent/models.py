@@ -23,3 +23,18 @@ class WebsiteContent(models.Model):
 
     def __str__(self):
          return f"Website content version {self.versionNumber}"
+
+
+class FAQItem(models.Model):
+    question = models.CharField(max_length=255, blank=True)
+    answer = CKEditor5Field(blank=True, config_name='default')
+    display_order = models.PositiveIntegerField(default=0, db_index=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["display_order", "id"]
+
+    def __str__(self):
+        return self.question or f"FAQ #{self.pk}"

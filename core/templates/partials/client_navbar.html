@@ -40,11 +40,6 @@
           </a>
         </li>
         <li class="nav-item">
-          <a class="nav-link px-4 py-2 rounded-pill {% if request.resolver_match.url_name == 'client_schedule' %}bg-white{% else %}text-white{% endif %}" 
-            href="{% url 'client_schedule' %}">Schedule
-          </a>
-        </li>
-        <li class="nav-item">
           <a class="nav-link px-4 py-2 rounded-pill {% if request.resolver_match.url_name == 'client_invoices' %}bg-white{% else %}text-white{% endif %}" 
             href="{% url 'client_invoices' %}">Invoices
           </a>

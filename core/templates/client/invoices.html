@@ -44,7 +44,7 @@
     <div class="card shadow-sm">
       <div class="card-header fw-bold">Past Invoices</div>
       <div class="list-group list-group-flush">
-        {% for inv in past_invoice %}
+        {% for inv in past_invoices %}
         <div class="list-group-item d-flex justify-content-between align-items-center">
           <div>
             <div>Amount: ${{ inv.display_amount|floatformat:2 }}</div>

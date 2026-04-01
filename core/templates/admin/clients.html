@@ -1,16 +1,165 @@
 {% extends "admin/base_admin.html" %}
 
 {% block title %}Clients – Admin{% endblock %}
+{% load phone_filter %}
+
+{% block extra_css %}
+<style>
+  .client-card {
+    background-color: #C3D5D6;
+    border-radius: .5rem;
+    padding: 1rem 1.25rem;
+    margin-bottom: .75rem;
+  }
+  .client-label {
+    font-size: .7rem;
+    color: #555;
+    text-transform: uppercase;
+  }
+  .client-value {
+    font-size: .95rem;
+    color: #1a1a1a;
+  }
+</style>
+{% endblock %}
 
 {% block content %}
-<div class="row">
-  <div class="col-12">
-    <h1 class="h3 mb-4">Clients</h1>
-    <div class="card">
-      <div class="card-body">
-        <p class="text-muted">Client management coming soon...</p>
-      </div>
+<!-- Header -->
+<div class="p-3 mb-3 rounded" style="background-color: #e8f2f0;">
+  <h1 class="text-center fw-normal" style="font-family: serif; padding: 1rem 0 0 1rem; font-size: 3rem;">
+    Clients
+  </h1>
+</div>
+
+<div class="container-fluid px-5 py-3">
+
+  <!-- Filters + Search -->
+  <div class="card mb-3">
+    <div class="card-body">
+      <form method="get" class="row g-3 align-items-end">
+        <!-- Reset page to 1 on new search/filter -->
+        <input type="hidden" name="page" value="1">
+
+        <!-- Search -->
+        <div class="col-md-4">
+          <label class="form-label">Search</label>
+          <input type="text" name="search" class="form-control"
+                 placeholder="Name, email, or phone"
+                 value="{{ search_query }}">
+        </div>
+
+        <!-- Balance Filter -->
+        <div class="col-md-3">
+          <label class="form-label">Balance</label>
+          <select name="balance" class="form-select">
+            <option value="">All</option>
+            <option value="has_balance" {% if balance_filter == "has_balance" %}selected{% endif %}>
+              Has Balance
+            </option>
+            <option value="no_balance" {% if balance_filter == "no_balance" %}selected{% endif %}>
+              No Balance
+            </option>
+          </select>
+        </div>
+
+        <!-- Sort -->
+        <div class="col-md-3">
+          <label class="form-label">Sort</label>
+          <select name="sort" class="form-select">
+            <option value="asc" {% if sort == "asc" %}selected{% endif %}>A–Z</option>
+            <option value="desc" {% if sort == "desc" %}selected{% endif %}>Z–A</option>
+          </select>
+        </div>
+
+        <!-- Buttons -->
+        <div class="col-md-2 d-flex gap-2">
+          <button type="submit" class="btn text-white w-100"
+                  style="background-color: #2d7a73;">
+            Apply
+          </button>
+          <a href="?" class="btn btn-outline-secondary w-100">Clear</a>
+        </div>
+
+      </form>
     </div>
   </div>
+
+  <!-- Client Cards -->
+  {% for user in page_obj %}
+    <div class="client-card d-flex flex-column flex-md-row align-items-start align-items-md-center gap-2 gap-md-4 p-3">
+
+      <!-- Name -->
+      <div class="client-col" style="min-width: 200px; flex: 1;">
+        <div class="client-label">Name</div>
+        <div class="client-value">{{ user.first_name }} {{ user.last_name }}</div>
+      </div>
+
+      <!-- Email -->
+      <div class="client-col" style="min-width: 250px; flex: 1.5;">
+        <div class="client-label">Email</div>
+        <div class="client-value">{{ user.email }}</div>
+      </div>
+
+      <!-- Phone -->
+      <div class="client-col" style="min-width: 150px; flex: 1;">
+        <div class="client-label">Phone</div>
+        <div class="client-value">{{ user.phone_number|format_phone|default:"--" }}</div>
+      </div>
+
+      <!-- Balance -->
+      <div class="client-col" style="min-width: 100px; flex: 0.7;">
+        <div class="client-label">Balance</div>
+        <div class="client-value">${{ user.retainer_balance }}</div>
+      </div>
+    </div>
+  {% empty %}
+    <div class="text-center text-muted py-5">
+      No clients found.
+    </div>
+  {% endfor %}
+
+  <!-- Pagination -->
+  {% if page_obj.has_other_pages %}
+    <nav class="mt-3">
+      <ul class="pagination justify-content-center">
+
+        {% if page_obj.has_previous %}
+          <li class="page-item">
+            <a class="page-link"
+               href="?page={{ page_obj.previous_page_number }}
+               {% if search_query %}&search={{ search_query }}{% endif %}
+               {% if balance_filter %}&balance={{ balance_filter }}{% endif %}
+               {% if sort %}&sort={{ sort }}{% endif %}">
+               Previous
+            </a>
+          </li>
+        {% endif %}
+
+        {% for num in page_obj.paginator.page_range %}
+          <li class="page-item {% if page_obj.number == num %}active{% endif %}">
+            <a class="page-link"
+               href="?page={{ num }}
+               {% if search_query %}&search={{ search_query }}{% endif %}
+               {% if balance_filter %}&balance={{ balance_filter }}{% endif %}
+               {% if sort %}&sort={{ sort }}{% endif %}">
+               {{ num }}
+            </a>
+          </li>
+        {% endfor %}
+
+        {% if page_obj.has_next %}
+          <li class="page-item">
+            <a class="page-link"
+                href="?page={{ page_obj.next_page_number }}
+               {% if search_query %}&search={{ search_query }}{% endif %}
+               {% if balance_filter %}&balance={{ balance_filter }}{% endif %}
+               {% if sort %}&sort={{ sort }}{% endif %}">
+               Next
+            </a>
+          </li>
+        {% endif %}
+      </ul>
+    </nav>
+  {% endif %}
 </div>
 {% endblock %}

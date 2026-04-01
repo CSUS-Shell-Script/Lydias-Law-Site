@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Server Error{% endblock %}
+
+{% block content %}
+<div class="text-center py-5">
+    <h1 class="display-5 mb-3">Something Went Wrong</h1>
+    <p class="text-muted mb-4">There's an error on our end. Please try refreshing the page.</p>
+    <div class="d-flex justify-content-center gap-2 mb-4">
+        <a href="{% url 'home' %}" class="btn btn-custom px-4 py-2 rounded-pill">Go Home</a>
+        <a href="javascript:location.reload()" class="btn btn-custom px-4 py-2 rounded-pill">Try Refreshing</a>
+    </div>
+    <p class="text-muted" style="font-size: 0.9rem;">Error code: <strong>500</strong></p>
+</div>
+{% endblock %}

@@ -8,6 +8,7 @@ from allauth.account.utils import complete_signup
 from allauth.account import app_settings as allauth_settings
 from allauth.account.adapter import get_adapter
 from allauth.account.models import EmailAddress, EmailConfirmation, get_emailconfirmation_model
+from allauth.socialaccount.models import SocialApp
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from django.http import Http404
@@ -17,49 +18,91 @@ from django.db.models.functions import Coalesce
 from decimal import ROUND_HALF_UP, Decimal
 from appointments.models import Appointments
 from django.utils import timezone
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.validators import validate_email
 from sitecontent.views import get_latest_website_content
-
+from core.decorators import superuser_required
+import re
 
 # Directs to login page
 def login(r): 
     role = r.GET.get("role", "guest")
-    return render(r, "users/login.html", {"role": role})
+    google_login_enabled = SocialApp.objects.filter(provider="google").exists()
+    return render(r, "users/login.html", {"role": role, "google_login_enabled": google_login_enabled})
 
 # Handles login form submission and authenticates user
 @require_http_methods(["GET", "POST"])
 def login_view(request):
-    """
-    Render login page (GET) and authenticate credentials (POST).
-    Uses django.contrib.auth.authenticate() with email + password.
-    """
+    google_login_enabled = SocialApp.objects.filter(provider="google").exists()
+
     if request.method == "GET":
         role = request.GET.get("role", "guest")
-        return render(request, "users/login.html", {"role": role})
+        return render(
+            request,
+            "users/login.html",
+            {"role": role, "google_login_enabled": google_login_enabled},
+        )
 
     # POST
+    role = (request.POST.get("role") or request.GET.get("role") or "guest").strip().lower()
     email = (request.POST.get("email") or "").strip().lower()
     password = request.POST.get("password") or ""
+    google_login_enabled = SocialApp.objects.filter(provider="google").exists()
 
-    # authenticate() will look up by USERNAME_FIELD (email in our model)
+    User = get_user_model()
+    if not User.objects.filter(email__iexact=email).exists():
+        messages.error(request, "User does not exist, please create an account to login.")
+        return render(
+            request,
+            "users/login.html",
+            {"role": role, "google_login_enabled": google_login_enabled},
+            status=404,
+        )
+
     user = authenticate(request, email=email, password=password)
 
     if user is None:
-        # Wrong email/password
-        messages.error(request, "Invalid credentials.")
-        return render(request, "users/login.html", {"role": request.GET.get("role", "guest")}, status=401)
+        if role == "admin":
+            email_exists = User.objects.filter(email__iexact=email, is_staff=True).exists()
+        else:
+            email_exists = User.objects.filter(email__iexact=email, is_staff=False).exists()
+
+        messages.error(request, "Invalid email." if not email_exists else "Invalid password.")
+        return render(
+            request,
+            "users/login.html",
+            {"role": role, "google_login_enabled": google_login_enabled},
+            status=401,
+        )
 
     if not user.is_active:
-        # Users have is_active=False until email is verified
         messages.error(request, "Please verify your email to activate your account.")
-        return render(request, "users/login.html", {"role": request.GET.get("role", "guest")}, status=403)
+        return render(
+            request,
+            "users/login.html",
+            {"role": role, "google_login_enabled": google_login_enabled},
+            status=403,
+        )
 
-    # Success: log them in and redirect
+    if role == "admin" and not user.is_staff:
+        messages.error(request, "Invalid email.")
+        return render(
+            request,
+            "users/login.html",
+            {"role": role, "google_login_enabled": google_login_enabled},
+            status=401,
+        )
+    if role != "admin" and user.is_staff:
+        messages.error(request, "Invalid email.")
+        return render(
+            request,
+            "users/login.html",
+            {"role": role, "google_login_enabled": google_login_enabled},
+            status=401,
+        )
+
     auth_login(request, user)
-    if user.is_staff == 1:
-        return redirect("admin_dashboard")
-    return redirect("client_dashboard")
-
+    return redirect("admin_dashboard" if user.is_staff else "client_dashboard")
 def signup_page(r):
     return render(r, "users/signup.html")
 
@@ -75,28 +118,61 @@ def signup(r):
 
         password1 = r.POST.get('password1') or ""
         password2 = r.POST.get('password2') or ""
+        form_data = {
+            "first_name": first_name,
+            "last_name": last_name,
+            "email": email,
+            "phone_number": phone_number,
+        }
+
+        if (first_name == "" or 
+            last_name == "" or 
+            email == "" or 
+            phone_number == "" or 
+            password1 == "" or 
+            password2 == ""):
+            messages.error(r, "All fields must be filled in")
+            return render(r, "users/signup.html", {"form_data": form_data})
 
         # Basic checks
         if password1 != password2:
             messages.error(r, "Passwords do not match.")
-            return render(r, 'users/signup.html')
+            return render(r, 'users/signup.html', {"form_data": form_data})
 
         if password1 != password1.strip():
             messages.error(r, "Password cannot start or end with spaces.")
-            return render(r, 'users/signup.html')
+            return render(r, 'users/signup.html', {"form_data": form_data})
+        
+        # Checks if email is valid.
+        # e.g. (checks for an @, ensures there is a domain like .com, and makes sure both parts are non-empty).
+        try:
+            validate_email(email)
+        except ValidationError:
+            messages.error(r, "Please enter a valid email address.")
+            return render(r, 'users/signup.html', {"form_data": form_data})
 
         if User.objects.filter(email__iexact=email).exists():
             messages.error(r, "An account with that email already exists.")
-            return render(r, 'users/signup.html')
+            return render(r, 'users/signup.html', {"form_data": form_data})
 
-        # Create the user with a **real** password
+        # Validate phone number format (only functions on basic US format: 10 digits, with or without dashes).
+        # If international numbers are needed, this will need to be adjusted to account for that.
+        phone_number_digits = re.sub(r'\D', '', phone_number)
+        if len(phone_number_digits) != 10:
+            messages.error(r, "Please enter a valid phone number.")
+            return render(r, 'users/signup.html', {"form_data": form_data})
+
+        # Normalize phone number to digits only for storage.
+        phone_number = phone_number_digits
+
+        # Create the user with a "real" password.
         user = User.objects.create_user(
             email=email,
             password=password1,
             first_name=first_name,
             last_name=last_name,
             phone_number=phone_number,
-            role=User.Role.CLIENT # Change new user to client role.
+            role=User.Role.GUEST # New user has guest role until email verified.
         )
 
         # Create Email Address Object.
@@ -221,7 +297,7 @@ def is_admin_user(user):
     return user.is_authenticated and user.is_staff
 
 # Admin dashboard view
-@login_required
+@superuser_required
 def admin_dashboard(r): 
     content = get_latest_website_content()
     upcoming_appts = admin_get_next_three_appointments(r.user)
@@ -248,3 +324,6 @@ def instant_email_confirm_view(r, key):
     # Upon signing up, the user was not logging into the account that they had just created and authenticated.
     # This function fixes this issue by redirecting the user here to log in before going to the dashboard.
     return redirect(reverse('client_dashboard'))
+
+def trigger_500(r):
+    raise Exception("Intentional test error")

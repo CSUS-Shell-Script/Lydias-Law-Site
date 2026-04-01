@@ -3,21 +3,30 @@ import json
 import logging
 
 from django.conf import settings
+from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
 from django.http import JsonResponse
 from django.shortcuts import render, redirect
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth.decorators import login_required
-from users.views import is_admin_user
+from django.contrib import messages
+#from users.views import is_admin_user
+from core.decorators import superuser_required
 
 import stripe
 from users.models import User
-from .models import Invoice, StripeWebhookEvent
+from .models import Invoice, StripeWebhookEvent, Payment
+from django.contrib import messages
+from django.contrib.messages import get_messages
+from django.utils import timezone
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
 
 # Standard Django logger for recording webhook activity.
 logger = logging.getLogger(__name__)
+
+# Exclusive upper bound for unit price (valid range: 0 < unit_price < UNIT_PRICE_MAX).
+UNIT_PRICE_MAX = 99_999
 
 
 def get_or_create_stripe_customer_id(user):
@@ -133,10 +142,30 @@ def stripe_webhook(request):
             # Paid means the invoice is complete.
             invoice.status = Invoice.Status.PAID
             invoice.paid = True
+            
+            # Create Payment record for successful payment.
+            # This one makes sense to make.
+            Payment.objects.create(
+                user=invoice.user,
+                amount=invoice.amount,
+                currency="USD",
+                status=Payment.Status.SUCCESS,
+                paid_at=timezone.now()
+            )
         elif event_type == "invoice.payment_failed":
             # Payment failed means the invoice is still unpaid.
             invoice.status = Invoice.Status.PAYMENT_FAILED
             invoice.paid = False
+            
+            # Create Payment record for failed payment.
+            # Unsure if this is needed but added it since a test case required it.
+            Payment.objects.create(
+                user=invoice.user,
+                amount=invoice.amount,
+                currency="USD", 
+                status=Payment.Status.FAILED,
+                paid_at=timezone.now()
+            )
         elif event_type == "invoice.voided":
             invoice.status = Invoice.Status.VOIDED
             invoice.paid = False
@@ -162,8 +191,15 @@ def create_invoice_items(stripe_customer_id, descriptions, quantities, unit_pric
     # is calculated during the creation of the stripe invoice.
     for desc, quantity, price in zip(descriptions, quantities, unit_prices):
         try:
-            price_cents = int(float(price) * 100)
+            price_float = float(price)
+            price_cents = int(price_float * 100)
             quantity = int(quantity)
+
+            # Validate that price is within allowed bounds (0 < unit_price < UNIT_PRICE_MAX).
+            if price_float <= 0 or price_float >= UNIT_PRICE_MAX:
+                return JsonResponse({"success": False, "error": "Unit price must be greater than $0 and less than $99,999."})
+            if quantity <= 0:
+                return JsonResponse({"success": False, "error": "Quantity must be greater than zero."})
 
             stripe.InvoiceItem.create(
                 unit_amount_decimal=price_cents,
@@ -192,12 +228,28 @@ def create_invoice(request):
             # Get user.
             user = User.objects.get(email=user_email)
 
+            # Prevent creating a new invoice if the client already has a pending one.
+            if Invoice.objects.filter(user=user, status=Invoice.Status.PENDING).exists():
+                return JsonResponse({"success": False, "error": "This client already has a pending invoice. Please have the client pay it or void the pending invoice before creating a new one."})
+
             # Check if user has existing Stripe ID.
             stripe_customer_id = get_or_create_stripe_customer_id(user)
 
             # Create invoice items based on line items.
-            create_invoice_items(stripe_customer_id, descriptions, quantities, unit_prices)
+            result = create_invoice_items(stripe_customer_id, descriptions, quantities, unit_prices)
+            # If create_invoice_items catches an exception, it returns a jsonResponse.
+            # Handle that here and return it if an error occurs, otherwise result will be None.
+            if isinstance(result, JsonResponse):
+                return result
 
+            try:
+                issue_date_parsed = datetime.strptime(issue_date, "%Y-%m-%d")
+                due_date_parsed = datetime.strptime(due_date, "%Y-%m-%d")
+                if due_date_parsed < issue_date_parsed:
+                    return JsonResponse({"success": False, "error": "Invalid due date, please set due date to be after the issue date."})
+            except ValueError:
+                return JsonResponse({"success": False, "error": "Date format error."})
+            
             # Sets due date as a datetime object.
             # Stripe requires this to be a UNIX timestamp integer, so.. ya.
             due_date_timestamp = int(datetime.strptime(due_date, "%Y-%m-%d").timestamp())
@@ -241,9 +293,9 @@ def create_invoice(request):
             )
 
         except User.DoesNotExist:
-            return JsonResponse({"success": False, "error": "User not found"})
+            return JsonResponse({"success": False, "error": "User does not exist within the database, invoice has not been created."})
         except Exception as e:
-            return JsonResponse({"success": False, "error": str(e)})
+            return JsonResponse({"success": False, "error": f"An error has occurred: {str(e)}. Please double check all fields are valid."})
 
     return render(request, "admin/create_invoice.html")
 
@@ -258,31 +310,42 @@ def stripe_get_invoice(stripe_invoice_id: str):
 def stripe_list_client_invoices(user, limit=50):
     return stripe.Invoice.list(customer=user.provider_customer_id, limit=limit)
 
-@login_required
+@superuser_required # Ensures only visible to admins (PermissionDenied if not)
 def admin_transactions(request):
-    # Ensures only visible to admins (PermissionDenied if not)
-    is_admin_user(request.user)
-
     # Fetch from local DB so we can link to Django users
     # Use select_related to get the user email in one database hit
     invoices = Invoice.objects.select_related("user").all().order_by("-created_at")
 
-   # helper attributes so template logic works
-    for inv in invoices:
+    # per_page: only 20 (default) or 40 are accepted; anything else falls back to 20
+    try:
+        per_page = int(request.GET.get("per_page", 20))
+    except (TypeError, ValueError):
+        per_page = 20
+    if per_page not in (20, 40):
+        per_page = 20
+
+    paginator = Paginator(invoices, per_page)
+    page_number = request.GET.get("page", 1)
+    page_obj = paginator.get_page(page_number)
+
+    # Attach display helpers to the current page's items only
+    for inv in page_obj:
         # Convert cents (stripe) to dollars for UI
         inv.amount_dollars = inv.amount / 100.0 if inv.amount else 0.0
-        # Ensure status is uppercase for templates checks
-        inv.display_status = str(inv.status).upper()    
-    return render(request, "admin/transactions.html", {"invoices": invoices })
+        # Ensure status is uppercase for template checks
+        inv.display_status = str(inv.status).upper()
 
-@login_required
+    return render(request, "admin/transactions.html", {
+        "page_obj": page_obj,
+        "per_page": per_page,
+    })
+
+@superuser_required
 def admin_stripe_invoice_detail(request, stripe_invoice_id):
     """
     Admin-only: Retrieve a Stripe invoice by stripe invoice ID
     Sends invoice info to frontend as JSON
     """
-    is_admin_user(request.user)
-
     try: 
         inv = stripe_get_invoice(stripe_invoice_id)
     except stripe.error.StripeError as e:
@@ -300,15 +363,13 @@ def admin_stripe_invoice_detail(request, stripe_invoice_id):
         "customer": inv.get("customer"),
     })
 
-@login_required
+@superuser_required
 def admin_stripe_invoices_for_user(request, user_id):
     """
     Admin-only: Retrieve all stripe invoices for a local user id
     Uses user's stripe customer id -> provider_customer_id
     Sends invoice list to frontend as JSON
     """
-    is_admin_user(request.user)
-
     try: 
         user = User.objects.get(id=user_id)
     except User.DoesNotExist:
@@ -342,14 +403,12 @@ def admin_stripe_invoices_for_user(request, user_id):
         "invoices": invoices,
     })
 
-@login_required
+@superuser_required
 def void_invoice(request, stripe_invoice_id):
     """
     Admin-only: void an open Stripe invoice and update the local DB.
     Only PENDING invoices can be voided; PAID invoices cannot.
     """
-    is_admin_user(request.user)
-
     if request.method != "POST":
         return JsonResponse({"error": "Method not allowed"}, status=405)
 
@@ -379,14 +438,19 @@ def void_invoice(request, stripe_invoice_id):
     )
     return JsonResponse({"status": "voided"})
 
+
 def create_checkout_session(request, invoice_id):
+    # Clear double messages
+    storage = get_messages(request)
     try:
         invoice = Invoice.objects.get(id=invoice_id)
     except Invoice.DoesNotExist:
-        return JsonResponse({"error": "Invoice not found"}, status=404)
+        messages.error(request, "Invoice not found")
+        return redirect('payment')
 
     if invoice.status == Invoice.Status.PAID or invoice.paid:
-        return JsonResponse({"error": "Invoice already paid"}, status=400)
+        messages.warning(request, "This invoice has already been paid. Thank You!")
+        return redirect('payment')
 
     session = stripe.checkout.Session.create(
         mode="payment",

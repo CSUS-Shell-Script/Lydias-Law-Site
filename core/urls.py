@@ -31,6 +31,7 @@ urlpatterns = [
     path("privacy/", views.privacy, name="privacy"),
     path("appointment_confirmation/", views.appointment_confirmation, name="appointment_confirmation"),
     path("payment/success/", views.payment_success, name="payment_success"),
+    path("payment/failure/", views.payment_failure, name="payment_failure"),
 
     # users pages
     path("users/", include("users.urls")),
@@ -50,6 +51,7 @@ urlpatterns = [
     path("administrator/appointments/", views.admin_appointments, name="admin_appointments"),
     path("administrator/appointments/<int:pk>/", views.admin_appointment_detail, name="admin_appointment_detail"),
     path("administrator/appointments/<int:pk>/cancel/", views.admin_appointment_cancel, name="admin_appointment_cancel"),
+    path("administrator/appointments/<int:pk>/accept/", views.admin_appointment_accept, name="admin_appointment_accept"),
     path("administrator/appointments/<int:pk>/status/", views.admin_appointment_update_status, name="admin_appointment_update_status"),
     path("logout/", users_logout_view, name="logout"),
     path('accounts/confirm-email/<str:key>/', email_confirm_view, name='account_confirm_email'),
@@ -63,7 +65,6 @@ urlpatterns = [
     path("client/contact/", contact, {'client': True}, name="client_contact"),
     path("client/dashboard/", users_client_dashboard, name="client_dashboard"),
     path("client/practice-areas/", views.client_practice_areas, name="client_practice_areas"),
-    path("client/schedule/", views.client_schedule, name="client_schedule"),
     path("client/invoices/", views.client_invoices, name="client_invoices"),
     path("client/privacy/", views.client_privacy, name="client_privacy"),
     path("client/appointment_confirmation/", views.client_appointment_confirmation, name="client_appointment_confirmation"),

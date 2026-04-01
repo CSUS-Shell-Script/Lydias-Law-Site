@@ -18,6 +18,28 @@ body {
 
 
 }
+/* BUTTON STYLES */
+.btn-pending-action {
+    color: #a68102 !important;
+    border: 1px solid #a68102 !important;
+    background-color: transparent !important;
+    font-weight: 600 !important;
+    transition: all 0.3s ease !important;
+    text-transform: uppercase;
+}
+.btn-pending-action:hover{
+    background-color: #fdf6e3 !important;
+    color: #856404 !important;
+    text-decoration: none;
+    border-color: #856404 !important;
+}
+
+.btn-outline-secondary:hover,
+.btn.outline-secondary:focus {
+    background-color: #a1acab;
+    color: #fff;
+    text-decoration: none;
+}
 
 a.btn-custom {
     background-color: #2d7a73;
@@ -160,4 +182,26 @@ a.btn-custom:hover {
     border-bottom: none !important;
 }
 
+/* Error message styles */
+.custom-alert {
+    background-color: lightcoral !important; 
+    color: black !important;           
+    border: 1px solid lightpink !important;
+    border-radius: 12px;
+    font-weight: 500;
+}
+/* Removes the circle/box and makes the X daintier */
+.btn-close {
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%23000'%3e%3cpath d='M.293.293a1 1 0 011.414 0L8 6.586 14.293.293a1 1 0 111.414 1.414L9.414 8l6.293 6.293a1 1 0 01-1.414 1.414L8 9.414l-6.293 6.293a1 1 0 01-1.414-1.414L6.586 8 .293 1.707a1 1 0 010-1.414z'/%3e%3c/svg%3e") !important;
+    opacity: 0.6;
+    background-size: 12px; /* Adjust this to make the X smaller or larger */
+}
 
+.btn-close:hover {
+    opacity: 1;
+    background-color: transparent !important;
+}
+
+.btn-close:focus {
+    box-shadow: none !important;
+}
