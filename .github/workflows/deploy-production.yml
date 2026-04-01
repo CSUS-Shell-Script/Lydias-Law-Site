@@ -11,4 +11,4 @@ jobs:
 
     steps:
       - name: Deploy on droplet
-        run: /home/deploy/deploy.sh
+        run: /home/deploy/apps/Lydias-Law-Site/deploy.sh
