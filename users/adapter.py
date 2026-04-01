@@ -1,5 +1,7 @@
 from allauth.account.adapter import DefaultAccountAdapter
+from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
 from django.shortcuts import redirect
+from django.urls import reverse
 
 class MyAccountAdapter(DefaultAccountAdapter):
     def respond_user_inactive(self, request, user):
@@ -20,3 +22,20 @@ class MyAccountAdapter(DefaultAccountAdapter):
             # Handle exception here? Optional for now...
             pass
         return result
+
+    def get_password_change_redirect_url(self, request):
+        if request.user.is_authenticated and request.user.is_staff:
+            return reverse("admin_dashboard")
+        if request.user.is_authenticated:
+            return reverse("client_account")
+        return super().get_password_change_redirect_url(request)
+
+# Google login users will not default to the role of 'GUEST'
+class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
+    def save_user(self, request, sociallogin, form=None):
+        user = super().save_user(request, sociallogin, form)
+
+        user.role = "CLIENT"
+        user.save()
+
+        return user

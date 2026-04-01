@@ -11,7 +11,7 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 """
 
 from pathlib import Path
-import environ, dj_database_url, os
+import environ, dj_database_url, os, sys
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -121,6 +121,8 @@ ACCOUNT_SIGNUP_REDIRECT_URL = "client/dashboard"
 ACCOUNT_LOGOUT_REDIRECT_URL = "home"
 ACCOUNT_LOGIN_REDIRECT_URL = '/client/dashboard/'
 ACCOUNT_ADAPTER = "users.adapter.MyAccountAdapter"
+SOCIALACCOUNT_ADAPTER = "users.adapter.CustomSocialAccountAdapter"
+ACCOUNT_EMAIL_NOTIFICATIONS = True
 
 # Select Custom User
 AUTH_USER_MODEL = "users.User"
@@ -159,9 +161,7 @@ SOCIALACCOUNT_LOGIN_ON_GET = True
 ACCOUNT_USERNAME_REQUIRED = False
 ACCOUNT_USER_MODEL_USERNAME_FIELD = None
 ACCOUNT_AUTHENTICATION_METHOD = 'email'
-ACCOUNT_FORMS = {
-    "signup": "users.forms.CustomSignupForm"
-}
+
 
 # Email Verification Email
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
@@ -200,8 +200,16 @@ DATABASES = {
             }
         },
     }
-
 }
+
+if "test" in sys.argv:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": ":memory:",
+        }
+    }
+
 # Password validation
 # https://docs.djangoproject.com/en/5.0/ref/settings/#auth-password-validators
 

@@ -1,5 +1,4 @@
-
-{% block content %}   
+{% block content %}
 {% load static %}
 
 <style>
@@ -23,22 +22,17 @@
 
                         <!-- Container for Text-->
                         <div class="serif-text text-center text-md-start">
-                            <h1 class="mb-2">Payment Confirmed!</h1>
-                            <div class="order-summary mb-3">
-                                <h3>Order Summary</h3>
-                                <p>Invoice #123</p>
-                                <p>Amount: $100.00</p>
-                                <p>Date: 2023-10-01</p>
-                            </div>
+                            <h1 class="mb-2">Transaction Failed</h1>
+                            <p class="mb-3">Your payment could not be processed. Please try again.</p>
 
-                            <!-- Container for Close Button -->
+                            <!-- Container for Retry Button -->
                             <div class="d-flex justify-content-center">
-                                <a href="/" class=" serif-text btn btn-custom px-4 py-2 rounded-pill mt-4">Close</a>
+                                <a href="{% url 'payment' %}" class=" serif-text btn btn-custom px-4 py-2 rounded-pill mt-4">Retry Payment</a>
                             </div>
 
                         </div>
                     </div>
 
-         </div> <!-- close outer container-->       
+         </div> <!-- close outer container-->
     </main> <!-- close main -->
 {% endblock %}
