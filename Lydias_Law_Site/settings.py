@@ -50,6 +50,10 @@ STRIPE_PUBLISHABLE_KEY = env("STRIPE_PUBLISHABLE_KEY")
 #         "https://your-production-domain.com",
 #     ]
 
+CSRF_TRUSTED_ORIGINS = [
+    "https://adoptionsofsac.com",
+    "https://www.adoptionsofsac.com",
+]
 
 # Application definition
 
