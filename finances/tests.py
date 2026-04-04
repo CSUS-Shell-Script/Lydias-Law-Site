@@ -7,8 +7,8 @@ from django.contrib.auth import get_user_model, authenticate
 from django.contrib.sites.models import Site
 from django.test import TestCase, Client
 from django.urls import reverse
-from unittest.mock import patch, MagicMock
-
+from unittest.mock import patch, MagicMock, PropertyMock
+from datetime import datetime
 from allauth.socialaccount.models import SocialApp
 
 from finances.models import Invoice, Payment
@@ -17,8 +17,9 @@ from users.models import AdminProfile
 from decimal import Decimal
 
 import logging
-
+import stripe
 import json
+import uuid
 
 User = get_user_model()
 
@@ -997,3 +998,301 @@ class StripePaymentFlowTests(TestCase):
         print("Assertion 3 PASS: payment.user == self.user")
         print("Assertion 4 PASS: payment.amount == 50000")
         print("Assertion 5 PASS: payment.status == Payment.Status.SUCCESS")
+
+# Admin is able to change client balances by voiding pending invoice and creating a new one
+class AdminChangeClientBalanceTest(TestCase):
+    # Return a minimal MagicMock that satisfies the create_invoice view
+    @staticmethod
+    def mock_invoice(invoice_id="inv_test", amount_due=10000, hosted_url="https://stripe.com/invoice/test"):
+        mock_invoice = MagicMock()
+        mock_invoice.id = invoice_id
+        mock_invoice.amount_due = amount_due
+        mock_invoice.hosted_invoice_url = hosted_url
+        # Add the .get() method that the admin_stripe_invoice_detail expects
+        mock_invoice.get = MagicMock(side_effect=lambda key: {
+            "id": mock_invoice.id,
+            "amount_due": mock_invoice.amount_due,
+            "hosted_invoice_url": mock_invoice.hosted_invoice_url,
+            "status": "open",
+            "currency": "usd",
+            "customer": "cus_test123",
+        }.get(key))
+        return mock_invoice
+
+    def setUp(self):
+        self.client = Client()
+        self.create_invoice_url = reverse("admin_create_invoices")
+        
+        # Create admin user with proper permissions
+        self.admin_user = User.objects.create_user(
+            email="admin@example.com",
+            password="adminpass",
+            first_name="Admin",
+            last_name="User",
+            is_active=True,
+            is_staff=True,
+        )
+        
+        # Create regular user (client)
+        self.client_user = User.objects.create_user(
+            email="client@example.com",
+            password="clientpass",
+            first_name="Client",
+            last_name="User",
+            provider_customer_id="cus_test123",
+            is_active=True
+        )
+        
+        # Login as admin
+        self.client.login(email="admin@example.com", password="adminpass")
+    
+    # Helper to create a test invoice
+    def create_test_invoice(self, status="PENDING", amount=10000, stripe_invoice_id=None):
+        if not stripe_invoice_id:
+            stripe_invoice_id = f"inv_test_{str(uuid.uuid4())[:8]}"
+        
+        invoice = Invoice.objects.create(
+            user=self.client_user,
+            amount=amount,
+            stripe_invoice_id=stripe_invoice_id,
+            hosted_invoice_url="https://stripe.com/invoice/test",
+            status=status,
+        )
+        
+        if status == "PAID":
+            invoice.paid = True
+            invoice.save()
+        
+        return invoice
+
+    # Test successfully voiding a pending invoice
+    def test_void_pending_invoice_success(self):
+        invoice = self.create_test_invoice(status="PENDING")
+        
+        with patch("finances.views.stripe") as mock_stripe:
+            mock_stripe.Invoice.void_invoice.return_value = MagicMock()
+            
+            url = f'/api/admin/stripe/invoice/{invoice.stripe_invoice_id}/void/'
+            response = self.client.post(url)
+            
+            self.assertEqual(response.status_code, 200)
+            response_data = json.loads(response.content)
+            self.assertEqual(response_data["status"], "voided")
+            
+            invoice.refresh_from_db()
+            self.assertEqual(invoice.status, Invoice.Status.VOIDED)
+            self.assertFalse(invoice.paid)
+            
+            mock_stripe.Invoice.void_invoice.assert_called_once_with(
+                invoice.stripe_invoice_id
+            )
+
+    # Test attempting to void an already voided invoice
+    def test_void_already_voided_invoice(self):    
+        invoice = self.create_test_invoice(status="VOIDED")
+        
+        url = f'/api/admin/stripe/invoice/{invoice.stripe_invoice_id}/void/'
+        response = self.client.post(url)
+        
+        self.assertEqual(response.status_code, 400)
+        response_data = json.loads(response.content)
+        self.assertEqual(response_data["error"], "Invoice is already voided")
+
+    # Test attempting to void a paid invoice
+    def test_void_paid_invoice(self):
+        invoice = self.create_test_invoice(status="PAID")
+        
+        url = f'/api/admin/stripe/invoice/{invoice.stripe_invoice_id}/void/'
+        response = self.client.post(url)
+        
+        self.assertEqual(response.status_code, 400)
+        response_data = json.loads(response.content)
+        self.assertEqual(response_data["error"], "Cannot void a paid invoice")
+
+    # Test creating a new invoice after voiding the old one
+    @patch("finances.views.stripe")
+    def test_create_new_invoice_after_void(self, mock_stripe):
+        
+        # Create initial invoice
+        invoice = self.create_test_invoice(status="PENDING")
+        
+        # Mock void operation
+        mock_stripe.Invoice.void_invoice.return_value = MagicMock()
+        
+        void_url = f'/api/admin/stripe/invoice/{invoice.stripe_invoice_id}/void/'
+        void_response = self.client.post(void_url)
+        self.assertEqual(void_response.status_code, 200)
+        
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.status, Invoice.Status.VOIDED)
+        
+        # Create mock invoice using the helper method
+        mock_invoice = self.mock_invoice(
+            invoice_id="inv_test_456",
+            amount_due=15000,
+            hosted_url="https://stripe.com/invoice/test2"
+        )
+        
+        mock_stripe.Invoice.create.return_value = mock_invoice
+        mock_stripe.Invoice.finalize_invoice.return_value = mock_invoice
+        mock_stripe.Customer.create.return_value = MagicMock(id="cus_test123")
+        mock_stripe.InvoiceItem.create.return_value = MagicMock()
+        
+        post_data = {
+            "email": self.client_user.email,
+            "issue_date": "2026-04-10",
+            "due_date": "2026-05-10",
+            "customer_notes": "Updated invoice after void",
+            "description[]": ["Legal Consultation", "Document Review"],
+            "quantity[]": ["1", "2"],
+            "unit_price[]": ["100.00", "50.00"]
+        }
+        
+        response = self.client.post(self.create_invoice_url, post_data)
+        
+        self.assertEqual(response.status_code, 200)
+        response_data = json.loads(response.content)
+        self.assertTrue(response_data["success"])
+        
+        new_invoices = Invoice.objects.filter(user=self.client_user, status="PENDING")
+        self.assertEqual(new_invoices.count(), 1)
+        
+        new_invoice = new_invoices.first()
+        self.assertNotEqual(new_invoice.id, invoice.id)
+
+    # Test that creating a new invoice after void doesn't conflict with pending
+    @patch("finances.views.stripe")
+    def test_create_invoice_after_void_prevents_pending_conflict(self, mock_stripe):
+        
+        # Create a pending invoice
+        pending_invoice = self.create_test_invoice(status="PENDING")
+        
+        post_data = {
+            "email": self.client_user.email,
+            "issue_date": "2026-04-10",
+            "due_date": "2026-05-10",
+            "customer_notes": "Should be blocked",
+            "description[]": ["Service"],
+            "quantity[]": ["1"],
+            "unit_price[]": ["100.00"]
+        }
+        
+        # First attempt - should be blocked
+        response = self.client.post(self.create_invoice_url, post_data)
+        
+        self.assertEqual(response.status_code, 200)
+        response_data = json.loads(response.content)
+        self.assertFalse(response_data["success"])
+        self.assertIn("already has a pending invoice", response_data["error"])
+        
+        # Mock void operation
+        mock_stripe.Invoice.void_invoice.return_value = MagicMock()
+        
+        void_url = f'/api/admin/stripe/invoice/{pending_invoice.stripe_invoice_id}/void/'
+        void_response = self.client.post(void_url)
+        self.assertEqual(void_response.status_code, 200)
+        
+        pending_invoice.refresh_from_db()
+        self.assertEqual(pending_invoice.status, Invoice.Status.VOIDED)
+        
+        # Create mock invoice using the helper method
+        mock_invoice = self.mock_invoice(
+            invoice_id="inv_new_789",
+            amount_due=10000,
+            hosted_url="https://stripe.com/invoice/new"
+        )
+        
+        mock_stripe.Invoice.create.return_value = mock_invoice
+        mock_stripe.Invoice.finalize_invoice.return_value = mock_invoice
+        mock_stripe.Customer.create.return_value = MagicMock(id="cus_test123")
+        mock_stripe.InvoiceItem.create.return_value = MagicMock()
+        
+        # Second attempt - should succeed
+        response = self.client.post(self.create_invoice_url, post_data)
+        
+        self.assertEqual(response.status_code, 200)
+        response_data = json.loads(response.content)
+        self.assertTrue(response_data["success"])
+
+    # Test the complete flow: create -> void -> create new invoice
+    @patch("finances.views.stripe")
+    def test_complete_void_and_recreate_flow(self, mock_stripe):
+        # Step 1: Create initial invoice
+        initial_post_data = {
+            "email": self.client_user.email,
+            "issue_date": "2026-04-10",
+            "due_date": "2026-05-10",
+            "customer_notes": "Initial invoice",
+            "description[]": ["Service A", "Service B"],
+            "quantity[]": ["1", "2"],
+            "unit_price[]": ["100.00", "75.00"]
+        }
+        
+        # Create mock invoice using the helper method
+        mock_initial_invoice = self.mock_invoice(
+            invoice_id="inv_initial_123",
+            amount_due=25000,
+            hosted_url="https://stripe.com/invoice/initial"
+        )
+        
+        mock_stripe.Invoice.create.return_value = mock_initial_invoice
+        mock_stripe.Invoice.finalize_invoice.return_value = mock_initial_invoice
+        mock_stripe.Customer.create.return_value = MagicMock(id="cus_test123")
+        mock_stripe.InvoiceItem.create.return_value = MagicMock()
+        
+        response = self.client.post(self.create_invoice_url, initial_post_data)
+        
+        self.assertEqual(response.status_code, 200)
+        response_data = json.loads(response.content)
+        self.assertTrue(response_data["success"])
+        
+        initial_invoice = Invoice.objects.get(stripe_invoice_id="inv_initial_123")
+        self.assertEqual(initial_invoice.status, Invoice.Status.PENDING)
+        self.assertEqual(initial_invoice.amount, 25000)
+        
+        # Step 2: Void the initial invoice
+        mock_stripe.Invoice.void_invoice.return_value = MagicMock()
+        
+        void_url = f'/api/admin/stripe/invoice/{initial_invoice.stripe_invoice_id}/void/'
+        void_response = self.client.post(void_url)
+        self.assertEqual(void_response.status_code, 200)
+        
+        initial_invoice.refresh_from_db()
+        self.assertEqual(initial_invoice.status, Invoice.Status.VOIDED)
+        
+        # Step 3: Create updated invoice
+        updated_post_data = {
+            "email": self.client_user.email,
+            "issue_date": "2026-04-15",
+            "due_date": "2026-05-15",
+            "customer_notes": "Updated invoice after void",
+            "description[]": ["Service A (Revised)", "Service B", "Service C"],
+            "quantity[]": ["1", "2", "1"],
+            "unit_price[]": ["100.00", "75.00", "50.00"]
+        }
+        
+        # Create mock invoice using the helper method
+        mock_updated_invoice = self.mock_invoice(
+            invoice_id="inv_updated_456",
+            amount_due=30000,
+            hosted_url="https://stripe.com/invoice/updated"
+        )
+        
+        mock_stripe.Invoice.create.return_value = mock_updated_invoice
+        mock_stripe.Invoice.finalize_invoice.return_value = mock_updated_invoice
+        
+        response = self.client.post(self.create_invoice_url, updated_post_data)
+        
+        self.assertEqual(response.status_code, 200)
+        response_data = json.loads(response.content)
+        self.assertTrue(response_data["success"])
+        
+        updated_invoice = Invoice.objects.get(stripe_invoice_id="inv_updated_456")
+        self.assertEqual(updated_invoice.status, Invoice.Status.PENDING)
+        self.assertEqual(updated_invoice.amount, 30000)
+        
+        # Verify both invoices exist with correct statuses
+        all_invoices = Invoice.objects.filter(user=self.client_user).order_by('created_at')
+        self.assertEqual(all_invoices.count(), 2)
+        self.assertEqual(all_invoices[0].status, Invoice.Status.VOIDED)
+        self.assertEqual(all_invoices[1].status, Invoice.Status.PENDING)
