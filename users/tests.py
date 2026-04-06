@@ -843,3 +843,230 @@ class InternalServerErrorTests(TestCase):
         
         self.assertTemplateUsed(resp, "500.html")
         print("Assertion 1 PASS: template used is 500.html")
+
+
+# LLW-299 Form security and validation 
+class FormSecurityTests(TestCase):
+
+    # Set up Admin and Client user data
+    def setUp(self):
+        self.admin_user = User.objects.create_user(
+            email="admin@example.com",
+            password="pw",
+            first_name="Admin",
+            last_name="User",
+            is_staff=True,
+            is_active=True,
+        )
+
+        self.client_password = "OldUniqueSecret456!"
+        self.client_user = User.objects.create_user(
+            email="client@example.com",
+            password=self.client_password,
+            first_name="Client",
+            last_name="User",
+            is_staff=False,
+            is_active=True,
+        )
+
+        site = Site.objects.get_or_create(
+            id=1,
+            defaults={"name": "Test Site", "domain": "testserver"}
+        )[0]
+
+        social_app, created = SocialApp.objects.get_or_create(
+            provider="google",
+            defaults={
+                "name": "Google (test)",
+                "client_id": "test-client-id",
+            }
+        )
+        social_app.sites.add(site)
+
+    # EMAIL VALIDATION TESTS
+    # Signup email validation already done under SignupTests class (function: test_signup_shows_error_for_invalid_email_format)
+    # Test: Login rejects invalid email
+    def test_login_rejects_invalid_email(self):
+        response = self.client.post(reverse("login"), {
+            "email": "not-an-email",
+            "password": "whatever123",
+        }, follow=True)
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(response.wsgi_request.user.is_authenticated)
+
+    # Test: Reject if email doesn't belong to an existing user (invoice creation only checks for existing user email)
+    def test_invoice_creation_rejects_invalid_email(self):
+        self.client.force_login(self.admin_user)
+        response = self.client.post(reverse("admin_create_invoices"), {
+            "client_name": "Client One",
+            "client_email": "bad-email",
+            "amount": "250.00",
+            "description": "Invoice test",
+        })
+        self.assertEqual(response.status_code, 200)
+
+
+    # CSRF TOKEN PRESENCE TESTS
+    # Test: Login form has csrf token
+    def test_login_form_contains_csrf_token(self):
+        response = self.client.get(reverse("login"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "csrfmiddlewaretoken")
+
+    # Test: Signup form has csrf token
+    def test_signup_form_contains_csrf_token(self):
+        response = self.client.get(reverse("signuppage"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "csrfmiddlewaretoken")
+
+    # Test: Client account modal forms have csrf token
+    def test_account_settings_modal_contains_csrf_token(self):
+        self.client.force_login(self.client_user)
+        response = self.client.get(reverse("client_account"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="editForm"')
+        self.assertContains(response, "csrfmiddlewaretoken")
+
+    # Test: Client account modal forms fails without csrf token
+    def test_account_settings_modal_post_without_csrf_fails(self):
+        csrf_client = Client(enforce_csrf_checks=True)
+        csrf_client.force_login(self.client_user)
+        response = csrf_client.post(reverse("client_account"), {
+            "field": "phone",
+            "new_value": "1234567890",
+        })
+        self.assertEqual(response.status_code, 403)
+
+    # Test: Admin invoice creation page has csrf token
+    def test_invoice_creation_form_contains_csrf_token(self):
+        self.client.force_login(self.admin_user)
+        response = self.client.get(reverse("admin_create_invoices"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "csrfmiddlewaretoken")
+
+    # Test: Guest User invoice payment page has csrf token
+    def test_invoice_payment_form_contains_csrf_token(self):
+        response = self.client.get(reverse("payment"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "csrfmiddlewaretoken")
+
+    # Test: Forgot password page has csrf token
+    def test_forgot_password_form_contains_csrf_token(self):
+        response = self.client.get(reverse("account_reset_password"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "csrfmiddlewaretoken")
+
+    # Test: Change password page has csrf token
+    def test_change_password_form_contains_csrf_token(self):
+        self.client.force_login(self.client_user)
+        response = self.client.get(reverse("account_change_password"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "csrfmiddlewaretoken")
+
+
+    # PASSWORD NOT RETURNED IN RESPONSE TESTS
+    # Test: Password field not returned in any response context or HTML output
+    def _assert_passwords_not_exposed(self, response, *passwords):
+        content = response.content.decode()
+
+        for password in passwords:
+            self.assertNotIn(
+                f'value="{password}"',
+                content,
+                f"Password value was rendered into an HTML input: {password!r}"
+            )
+            self.assertNotIn(
+                password,
+                content,
+                f"Password was found in response body: {password!r}"
+            )
+
+        if response.context:
+            for ctx in response.context:
+                flat_ctx = ctx.flatten()
+                for value in flat_ctx.values():
+                    if isinstance(value, str):
+                        for password in passwords:
+                            self.assertNotIn(
+                                password,
+                                value,
+                                f"Password was found in response context string: {password!r}"
+                            )
+
+    # Test: Login page doesn't render password if login failed (wrong password)
+    def test_login_password_not_rendered_in_response(self):
+        password = "WrongSecretPass_987!"
+        response = self.client.post(
+            reverse("login"),
+            {
+                "email": "client@example.com",
+                "password": password,
+            },
+            follow=True,
+        )
+        self.assertFalse(response.wsgi_request.user.is_authenticated)
+        self._assert_passwords_not_exposed(response, password)
+
+    # Test: Login page doesn't render password if login successful (correct password)
+    def test_login_with_valid_password_authenticates_user(self):
+        response = self.client.post(
+            reverse("login"),
+            {
+                "email": "client@example.com",
+                "password": self.client_password,
+            },
+            follow=True,
+        )
+        self.assertTrue(response.wsgi_request.user.is_authenticated)
+        self._assert_passwords_not_exposed(response, self.client_password)
+
+    # Test: Signup password page doesn't render password
+    def test_signup_password_not_rendered_in_response(self):
+        password = "NewSuperSecretPass123!"
+        response = self.client.post(
+            reverse("signuppage"),
+            {
+                "first-name": "Client",
+                "last-name": "User",
+                "email": "client@example.com",
+                "phone-number": "1234567890",
+                "password1": password,
+                "password2": password,
+            },
+            follow=True,
+        )
+        self.assertFalse(response.wsgi_request.user.is_authenticated)
+        self._assert_passwords_not_exposed(response, password)
+
+    # Test: Forgot password page doesn't render password
+    def test_forgot_password_response_does_not_render_passwords(self):
+        injected_password = "ForgotSecretPass555!"
+        response = self.client.post(
+            reverse("account_reset_password"),
+            {
+                "email": "client@example.com",
+                "password1": injected_password,
+                "password2": injected_password,
+            },
+            follow=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        self._assert_passwords_not_exposed(response, injected_password)
+
+    # Test: Change password page doesn't render password
+    def test_change_password_response_does_not_render_passwords(self):
+        self.client.force_login(self.client_user)
+        old_password = self.client_password
+        new_password = "NewSuperSecretPass123!"
+
+        response = self.client.post(
+            reverse("account_change_password"),
+            {
+                "oldpassword": old_password,
+                "password1": new_password,
+                "password2": new_password,
+            },
+            follow=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        self._assert_passwords_not_exposed(response, old_password, new_password)

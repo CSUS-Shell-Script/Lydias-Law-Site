@@ -38,6 +38,12 @@ STRIPE_WEBHOOK_SECRET = env("STRIPE_WEBHOOK_SECRET", default="")
 STRIPE_SECRET_KEY = env("STRIPE_SECRET_KEY")
 STRIPE_PUBLISHABLE_KEY = env("STRIPE_PUBLISHABLE_KEY")
 
+# HTTPS Settings
+SECURE_SSL_REDIRECT = True
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = True
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
 # Uncomment below if using ngrok to test webhook
 
 # if DEBUG:
@@ -50,6 +56,10 @@ STRIPE_PUBLISHABLE_KEY = env("STRIPE_PUBLISHABLE_KEY")
 #         "https://your-production-domain.com",
 #     ]
 
+CSRF_TRUSTED_ORIGINS = [
+    "https://adoptionsofsac.com",
+    "https://www.adoptionsofsac.com",
+]
 
 # Application definition
 
