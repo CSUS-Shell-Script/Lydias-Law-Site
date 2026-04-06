@@ -538,7 +538,143 @@ class ClientNavbarTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, f'href="{reverse("home")}"')
 
+# LLW-298 - Test: No cross-user data access (client A can't see client B's data)
+class DataIsolationTests(TestCase):
+    def setUp(self):
+
+        # User1
+        self.user1 = User.objects.create_user(
+            email="a@test.com",
+            password="pass",   
+            role=User.Role.CLIENT, 
+            is_active=True,                   
+        )
+        
+        # User2
+        self.user2 = User.objects.create_user(
+            email="b@test.com",
+            password="pass",   
+            role=User.Role.CLIENT, 
+            is_active=True,                   
+        )
+
+        # User1 and User2 appointments
+        now = timezone.now()
+        self.appt1 = Appointments.objects.create(
+            user_id=self.user1,
+            start_time=now + timedelta(days=1),
+            comments="Appointment for user1",
+            approved=True,
+        )
+        self.appt2 = Appointments.objects.create(
+            user_id=self.user2,
+            start_time=now + timedelta(days=1),
+            comments="Appointment for user2",
+            approved=True,
+        )
+
+    # Check and make sure they have the proper text for their user appointment
+    def test_user_cannot_see_other_users_data(self):
+        self.client.login(email="a@test.com", password="pass")
+
+        response = self.client.get(reverse("client_dashboard"))
+
+        self.assertContains(response, "Appointment for user1")
+        self.assertNotContains(response, "Appointment for user2")
+
+# LLW-298 - Test: Every /client/* route returns 302 (redirect to login) for unauthenticated users
+class ClientRouteAuthTests(TestCase):
+    def test_client_routes_require_login(self):
+        urls = [
+            reverse("client_about"),
+            reverse("client_account"),
+            reverse("client_contact"),
+            reverse("client_dashboard"),
+            reverse("client_practice_areas"),
+            reverse("client_invoices"),
+            reverse("client_privacy"),
+            reverse("client_appointment_confirmation"),
+        ]
+
+        for url in urls:
+            response = self.client.get(url)
+            print(f"{url} -> {response.status_code}")
+            self.assertEqual(response.status_code, 302)
+            self.assertIn("/login", response.url)
+
+# LLW-298 - Test: Webhook endpoints (/webhooks/stripe/, /appointments/webhooks/calendly/) are CSRF exempt
+# Also checking if these paths exists
+class WebhookTests(TestCase):
+    def test_stripe_webhook_csrf_exempt(self):
+        response = self.client.post("/webhooks/stripe/", data={})
+        self.assertNotEqual(response.status_code, 403)
+        self.assertNotEqual(response.status_code, 404) # make sure this path exists
+
+    def test_calendly_webhook_csrf_exempt(self):
+        response = self.client.post("/appointments/webhooks/calendly/", data={})
+        self.assertNotEqual(response.status_code, 403)
+        self.assertNotEqual(response.status_code, 404) # make sure this path exists
+
 ############################### Admin pages ###############################
+
+# LLW-298 - Test: Every /administrator/* route returns 403 for non-superusers
+class AdminPermissionTests(TestCase):
+
+    def setUp(self):
+        # Make client user
+        self.client_user = User.objects.create_user(
+            email="client@example.com",
+            password="pw",
+            first_name="Client",
+            last_name="User",
+            is_staff=False,
+            is_active=True,
+        )
+
+        # Give client user an appointment to test
+        now = timezone.now()
+        self.appointment = Appointments.objects.create(
+            user_id=self.client_user,
+            start_time=now + timedelta(days=1),
+            comments="Appointment 1",
+            approved=True,
+        )
+
+    # Test if /administrator/* route returns 403 for non-superusers
+    def test_admin_routes_forbidden_for_non_superuser(self):
+        self.client.force_login(self.client_user)
+        urls = [
+            reverse("admin_dashboard"),
+            reverse("admin_transactions"),
+            reverse("admin_clients"),
+            reverse("admin_schedule"),
+            reverse("admin_editor"),
+            reverse("admin_history"),
+            reverse("admin_appointments"),
+            reverse("admin_create_invoices"),
+            reverse("admin_invoice_confirmation"),
+            reverse("admin_appointment_detail", kwargs={"pk": self.appointment.pk}),
+        ]
+
+        for url in urls:
+            response = self.client.get(url)
+            print(f"{url} -> {response.status_code}")
+            self.assertEqual(response.status_code, 403)
+
+    # Test /administrator/* route returns 403 for non-superusers but for POST links
+    def test_admin_post_routes_forbidden_for_non_superuser(self):
+        self.client.force_login(self.client_user)
+
+        urls = [
+            reverse("admin_appointment_cancel", kwargs={"pk": self.appointment.pk}),
+            reverse("admin_appointment_accept", kwargs={"pk": self.appointment.pk}),
+            reverse("admin_appointment_update_status", kwargs={"pk": self.appointment.pk}),
+        ]
+
+        for url in urls:
+            response = self.client.post(url)
+            print(f"{url} -> {response.status_code}")
+            self.assertEqual(response.status_code, 403)
 
 class AdminAppointmentActionsTests(TestCase):
     def setUp(self):
