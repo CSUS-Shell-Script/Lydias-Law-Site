@@ -155,6 +155,76 @@ class ClientAppointmentCreationTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, 'client/appointment_confirmation.html')
 
+class PublicAppointmentCreationTest(TestCase):
+    def setUp(self):
+        self.client = Client()
+
+        # Fallback host user (superuser)
+        self.host_user = User.objects.create_user(
+            email="host@example.com",
+            password="testpass",
+            is_superuser=True
+        )
+
+        self.url = reverse("calendly_webhook")
+
+    # Helper to return a valid payload for testing
+    def valid_payload(self):
+        return {
+            "event": "invitee.created",
+            "payload": {
+                "email": "guest@example.com",
+                "name": "Guest User",
+                "uri": "invitee_001",
+                "scheduled_event": {
+                    "uri": "event_001",
+                    "start_time": "2026-04-10T15:00:00Z",
+                    "end_time": "2026-04-10T15:30:00Z",
+                    "event_memberships": [
+                        {"user_email": "host@example.com"}
+                    ]
+                }
+            }
+        }
+
+    # Non signed-in user can schedule appointment and database is updated
+    def test_valid_guest_appointment_created(self):
+        payload = self.valid_payload()
+        response = self.client.post(
+            self.url,
+            data=json.dumps(payload),
+            content_type="application/json"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Appointments.objects.count(), 1)
+
+        appt = Appointments.objects.first()
+        self.assertEqual(appt.calendly_event_uri, "event_001")
+        self.assertEqual(appt.status, Appointments.Status.CONFIRMED)
+        self.assertEqual(appt.user_id, self.host_user)
+
+    # Blank name field prevents creation
+    def test_blank_name_prevents_appointment(self):
+        payload = self.valid_payload()
+        payload["payload"]["name"] = ""
+        self.client.post(self.url, data=json.dumps(payload), content_type="application/json")
+        # Appointment should not exist
+        self.assertFalse(Appointments.objects.filter(calendly_event_uri="event_001").exists())
+
+    # Blank email field prevents creation
+    def test_blank_email_prevents_appointment(self):
+        payload = self.valid_payload()
+        payload["payload"]["email"] = ""
+        self.client.post(self.url, data=json.dumps(payload), content_type="application/json")
+        self.assertFalse(Appointments.objects.filter(calendly_event_uri="event_001").exists())
+
+    # Invalid email format prevents creation
+    def test_invalid_email_prevents_appointment(self):
+        payload = self.valid_payload()
+        payload["payload"]["email"] = "not-an-email"
+        self.client.post(self.url, data=json.dumps(payload), content_type="application/json")
+        self.assertFalse(Appointments.objects.filter(calendly_event_uri="event_001").exists())
+
 class AdminSchedulingTests(TestCase):
 
     def setUp(self):
