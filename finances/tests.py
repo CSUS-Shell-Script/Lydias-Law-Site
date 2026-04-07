@@ -1296,3 +1296,310 @@ class AdminChangeClientBalanceTest(TestCase):
         self.assertEqual(all_invoices.count(), 2)
         self.assertEqual(all_invoices[0].status, Invoice.Status.VOIDED)
         self.assertEqual(all_invoices[1].status, Invoice.Status.PENDING)
+
+class ClientInvoiceTests(TestCase):
+    
+    def setUp(self):
+        self.client = Client()
+        
+        # Create a regular user (client)
+        self.client_user = User.objects.create_user(
+            email="client@example.com",
+            password="clientpass123",
+            first_name="Test",
+            last_name="Client",
+            is_active=True
+        )
+        
+        # Login as the client
+        self.client.login(email="client@example.com", password="clientpass123")
+        
+        # Get URL names (update these to match your actual URLs)
+        self.invoices_url = reverse('client_invoices')
+        self.payment_url = reverse('payment')  # Your payment page URL
+        self.checkout_url_name = 'create_checkout_session'
+        self.stripe_webhook_url = reverse('stripe_webhook')
+        
+    # Helper to create an invoice
+    def create_invoice(self, user, status="PENDING", amount=50000, created_days_ago=0, paid=False):
+        
+        created_at = timezone.now() - timedelta(days=created_days_ago)
+        
+        invoice = Invoice.objects.create(
+            user=user,
+            amount=amount,
+            status=status,
+            paid=paid or (status == "PAID"),
+            stripe_invoice_id=f"inv_test_{status}_{amount}_{created_days_ago}",
+            hosted_invoice_url=f"https://stripe.com/invoice/test_{status}_{amount}",
+            created_at=created_at
+        )
+        return invoice
+    
+    # Test that the correct pending invoice amount is displayed
+    def test_pending_invoice_shows_correct_amount(self):
+        
+        # Create a pending invoice for $500.00
+        pending_invoice = self.create_invoice(
+            user=self.client_user,
+            status="PENDING",
+            amount=50000,
+            paid=False
+        )
+        
+        response = self.client.get(self.invoices_url)
+        
+        self.assertEqual(response.status_code, 200)
+        
+        # Check current invoice is in context
+        current_invoice = response.context.get('current_invoice')
+        self.assertIsNotNone(current_invoice)
+        self.assertEqual(current_invoice.id, pending_invoice.id)
+        
+        # Verify amount conversion from cents to dollars
+        self.assertEqual(current_invoice.display_amount, 500.00)
+        
+        # Verify HTML contains the correct amount
+        self.assertContains(response, "$500.00")
+        self.assertContains(response, "Amount Due: $500.00")
+        
+        # Verify Pay Now button exists
+        self.assertContains(response, "Pay Now")
+        self.assertContains(response, pending_invoice.hosted_invoice_url)
+    
+    # Test when no pending invoice exists (shows past invoices only)
+    def test_no_pending_invoice_shows_empty_state(self):
+        
+        # Create only paid invoices
+        self.create_invoice(user=self.client_user, status="PAID", amount=50000, paid=True)
+        
+        response = self.client.get(self.invoices_url)
+        
+        current_invoice = response.context.get('current_invoice')
+        self.assertIsNone(current_invoice)
+        
+        # The current invoice section should be empty (no Pay Now button)
+        self.assertNotContains(response, "Pay Now")
+        
+        # But past invoices should still show
+        self.assertContains(response, "Past Invoices")
+        self.assertContains(response, "$500.00")
+        self.assertContains(response, "Status: Paid")
+
+    # Test that clicking Pay Now redirects to Stripe checkout
+    @patch("finances.views.stripe")
+    def test_pay_now_redirects_to_stripe_checkout(self, mock_stripe):
+        
+        # Create pending invoice
+        invoice = self.create_invoice(
+            user=self.client_user,
+            status="PENDING",
+            amount=50000,
+            paid=False
+        )
+        
+        # Mock Stripe checkout session
+        mock_session = MagicMock()
+        mock_session.url = "https://checkout.stripe.com/session_123abc"
+        mock_stripe.checkout.Session.create.return_value = mock_session
+        
+        # Get checkout session URL
+        checkout_url = reverse(self.checkout_url_name, args=[invoice.id])
+        response = self.client.get(checkout_url)
+        
+        # Should redirect to Stripe
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, "https://checkout.stripe.com/session_123abc")
+        
+        # Verify Stripe was called with correct parameters
+        mock_stripe.checkout.Session.create.assert_called_once()
+        call_kwargs = mock_stripe.checkout.Session.create.call_args[1]
+        
+        # Check invoice amount (should be in cents)
+        line_item = call_kwargs['line_items'][0]
+        self.assertEqual(line_item['price_data']['unit_amount'], 50000)
+        
+        # Check metadata contains invoice ID
+        self.assertEqual(call_kwargs['metadata']['invoice_id'], str(invoice.id))
+
+    # Test that database reflects payment: invoice marked PAID
+    @patch("finances.views.stripe")
+    def test_database_updates_after_successful_payment(self, mock_stripe):
+        
+        # Create pending invoice
+        invoice = self.create_invoice(
+            user=self.client_user,
+            status="PENDING",
+            amount=50000,
+            paid=False
+        )
+        
+        # Verify initial state
+        self.assertEqual(invoice.status, "PENDING")
+        self.assertFalse(invoice.paid)
+        
+        # Simulate Stripe webhook for successful payment
+        webhook_data = {
+            "id": "evt_test_123",
+            "type": "invoice.paid",
+            "data": {
+                "object": {
+                    "id": "inv_stripe_123",
+                    "amount_due": 50000,
+                    "metadata": {"invoice_id": str(invoice.id)},
+                    "status": "paid"
+                }
+            }
+        }
+        
+        # Mock webhook verification
+        with patch("finances.views.stripe.Webhook.construct_event", return_value=webhook_data), \
+             patch("finances.views.settings.STRIPE_WEBHOOK_SECRET", "test_secret"):
+            response = self.client.post(
+                self.stripe_webhook_url,
+                data=json.dumps(webhook_data),
+                content_type='application/json',
+                HTTP_STRIPE_SIGNATURE='test_sig'
+            )
+            self.assertEqual(response.status_code, 200)
+        
+        # Refresh invoice from database
+        invoice.refresh_from_db()
+        
+        # Verify invoice is now marked as paid
+        self.assertEqual(invoice.status, "PAID")
+        self.assertTrue(invoice.paid)
+        
+        # Verify payment record was created
+        payment = Payment.objects.filter(user=self.client_user).first()
+        self.assertIsNotNone(payment)
+        self.assertEqual(payment.amount, 50000)
+        self.assertEqual(payment.status, "SUCCESS")
+    
+    # Test that invoice page shows updated status after payment
+    @patch("finances.views.stripe")
+    def test_invoice_page_updates_after_payment(self, mock_stripe):
+        
+        # Create pending invoice
+        invoice = self.create_invoice(
+            user=self.client_user,
+            status="PENDING",
+            amount=50000,
+            paid=False
+        )
+        
+        # Step 1: Before payment - invoice shows as current
+        response_before = self.client.get(self.invoices_url)
+        current_invoice_before = response_before.context.get('current_invoice')
+        self.assertIsNotNone(current_invoice_before)
+        self.assertContains(response_before, "Pay Now")
+        
+        # Step 2: Simulate successful payment via webhook
+        webhook_data = {
+            "id": "evt_test_789",
+            "type": "invoice.paid",
+            "data": {
+                "object": {
+                    "id": "inv_stripe_789",
+                    "amount_due": 50000,
+                    "metadata": {"invoice_id": str(invoice.id)},
+                    "status": "paid"
+                }
+            }
+        }
+        
+        with patch("finances.views.stripe.Webhook.construct_event", return_value=webhook_data), \
+             patch("finances.views.settings.STRIPE_WEBHOOK_SECRET", "test_secret"):
+            response = self.client.post(
+                self.stripe_webhook_url,
+                data=json.dumps(webhook_data),
+                content_type='application/json',
+                HTTP_STRIPE_SIGNATURE='test_sig'
+            )
+            self.assertEqual(response.status_code, 200)
+        
+        # Step 3: After payment invoice should not be current anymore
+        response_after = self.client.get(self.invoices_url)
+        
+        # Current invoice should be None (no pending invoices)
+        current_invoice_after = response_after.context.get('current_invoice')
+        self.assertIsNone(current_invoice_after)
+        
+        # No Pay Now button
+        self.assertNotContains(response_after, "Pay Now")
+        
+        # Invoice should appear in past invoices with Paid status
+        self.assertContains(response_after, "Status: Paid")
+        self.assertContains(response_after, "$500.00")
+    
+    # Test the entire flow
+    @patch("finances.views.stripe")
+    def test_complete_payment_flow(self, mock_stripe):
+        
+        # Step 1: Create pending invoice
+        invoice = self.create_invoice(
+            user=self.client_user,
+            status="PENDING",
+            amount=75000,
+            paid=False
+        )
+        
+        # Step 2: Client views invoice page
+        response_view = self.client.get(self.invoices_url)
+        self.assertEqual(response_view.status_code, 200)
+        current = response_view.context.get('current_invoice')
+        self.assertEqual(current.amount, 75000)
+        
+        # Step 3: Client clicks Pay Now, gets redirected to Stripe
+        mock_session = MagicMock()
+        mock_session.url = "https://checkout.stripe.com/session_complete"
+        mock_stripe.checkout.Session.create.return_value = mock_session
+        
+        checkout_url = reverse(self.checkout_url_name, args=[invoice.id])
+        response_checkout = self.client.get(checkout_url)
+        self.assertEqual(response_checkout.status_code, 302)
+        
+        # Step 4: Stripe sends webhook for successful payment
+        webhook_data = {
+            "id": "evt_complete_flow",
+            "type": "invoice.paid",
+            "data": {
+                "object": {
+                    "id": "inv_complete",
+                    "amount_due": 75000,
+                    "metadata": {"invoice_id": str(invoice.id)},
+                    "status": "paid"
+                }
+            }
+        }
+        
+        with patch("finances.views.stripe.Webhook.construct_event", return_value=webhook_data), \
+             patch("finances.views.settings.STRIPE_WEBHOOK_SECRET", "test_secret"):
+            response_webhook = self.client.post(
+                self.stripe_webhook_url,
+                data=json.dumps(webhook_data),
+                content_type='application/json',
+                HTTP_STRIPE_SIGNATURE='test_sig'
+            )
+            self.assertEqual(response_webhook.status_code, 200)
+        
+        # Step 5: Verify database was updated
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.status, "PAID")
+        self.assertTrue(invoice.paid)
+        
+        # Step 6: Verify payment record created
+        payment = Payment.objects.filter(user=self.client_user).first()
+        self.assertIsNotNone(payment)
+        self.assertEqual(payment.status, "SUCCESS")
+        
+        # Step 7: Client views updated invoice page
+        response_final = self.client.get(self.invoices_url)
+        
+        # No current pending invoice
+        current_final = response_final.context.get('current_invoice')
+        self.assertIsNone(current_final)
+        
+        # Invoice in past invoices with Paid status
+        self.assertContains(response_final, "Status: Paid")
+        self.assertContains(response_final, "$750.00")

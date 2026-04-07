@@ -185,7 +185,7 @@ def stripe_webhook(request):
     )
     return JsonResponse({"status": "success"}, status=200)
 
-@superuser_required
+
 def create_invoice_items(stripe_customer_id, descriptions, quantities, unit_prices):
     # Creates an invoice item object for each unique line item.
     # Quanitity and unit_price are taken into consideration, total amount
