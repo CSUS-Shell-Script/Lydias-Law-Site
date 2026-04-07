@@ -33,7 +33,7 @@ import re
 # Public views
 def home(r):
     role = r.GET.get("role", "guest")
-    return render(r, "home.html", {"role": role, "GOOGLE_MAPS_API_KEY": settings.GOOGLE_MAPS_API_KEY})
+    return render(r, "home.html", {"role": role})
   
 # Is this method 
 def practice_areas(r):
@@ -42,7 +42,7 @@ def practice_areas(r):
 
 def about(r): return render(r, "about.html")
 def services(r): return render(r, "services.html")
-def contact(r): return render(r, "contact.html", {"GOOGLE_MAPS_API_KEY": settings.GOOGLE_MAPS_API_KEY})
+def contact(r): return render(r, "contact.html")
 
 def payment(request):
     """
