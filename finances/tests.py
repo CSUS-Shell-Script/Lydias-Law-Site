@@ -367,9 +367,9 @@ class GuestInvoiceIdValidationTests(TestCase):
         url = reverse("payment")
         resp = self.client.post(url, data={"invoice_id": "999999"}, follow=True)
         self.assertEqual(resp.status_code, 404)
-        self.assertIn("Incorrect Invoice ID.", self._messages(resp))
+        self.assertIn("Incorrect/Invalid Invoice ID.", self._messages(resp))
 
-    def test_payment_post_with_valid_invoice_id_redirects_to_checkout(self):
+    def test_payment_post_with_valid_invoice_number_redirects_to_checkout(self):
         user = User.objects.create_user(
             email="client@example.com",
             password="pw",
@@ -382,12 +382,13 @@ class GuestInvoiceIdValidationTests(TestCase):
             user=user,
             amount=12345,
             status=Invoice.Status.PENDING,
+            stripe_invoice_number="ABCDEFGH-0001",
         )
 
         url = reverse("payment")
-        resp = self.client.post(url, data={"invoice_id": str(inv.id)})
+        resp = self.client.post(url, data={"invoice_id": inv.stripe_invoice_number})
         self.assertEqual(resp.status_code, 302)
-        self.assertEqual(resp["Location"], reverse("create_checkout_session", args=[inv.id]))
+        self.assertEqual(resp["Location"], reverse("create_checkout_session", args=[inv.stripe_invoice_number]))
 
 class InvoiceCreationTests(TestCase):
     """Test invoice creation functionality and error messages"""
@@ -594,6 +595,7 @@ def _make_fake_stripe_invoice():
     """Return a minimal MagicMock that satisfies the create_invoice view."""
     fake = MagicMock()
     fake.id = "inv_test"
+    fake.number = "ABCDEFGH-0001"
     fake.amount_due = 10000  # $100 in cents
     fake.hosted_invoice_url = "https://stripe.com/inv_test"
     return fake
@@ -1006,11 +1008,13 @@ class AdminChangeClientBalanceTest(TestCase):
     def mock_invoice(invoice_id="inv_test", amount_due=10000, hosted_url="https://stripe.com/invoice/test"):
         mock_invoice = MagicMock()
         mock_invoice.id = invoice_id
+        mock_invoice.number = f"ABCDEFGH-{invoice_id.split('_')[-1]}"
         mock_invoice.amount_due = amount_due
         mock_invoice.hosted_invoice_url = hosted_url
         # Add the .get() method that the admin_stripe_invoice_detail expects
         mock_invoice.get = MagicMock(side_effect=lambda key: {
             "id": mock_invoice.id,
+            "number": mock_invoice.number,
             "amount_due": mock_invoice.amount_due,
             "hosted_invoice_url": mock_invoice.hosted_invoice_url,
             "status": "open",
@@ -1331,6 +1335,7 @@ class ClientInvoiceTests(TestCase):
             status=status,
             paid=paid or (status == "PAID"),
             stripe_invoice_id=f"inv_test_{status}_{amount}_{created_days_ago}",
+            stripe_invoice_number=f"ABCDEFGH-0001",
             hosted_invoice_url=f"https://stripe.com/invoice/test_{status}_{amount}",
             created_at=created_at
         )
@@ -1403,8 +1408,8 @@ class ClientInvoiceTests(TestCase):
         mock_session.url = "https://checkout.stripe.com/session_123abc"
         mock_stripe.checkout.Session.create.return_value = mock_session
         
-        # Get checkout session URL
-        checkout_url = reverse(self.checkout_url_name, args=[invoice.id])
+        # Get checkout session URL using the customer-facing invoice number
+        checkout_url = reverse(self.checkout_url_name, args=[invoice.stripe_invoice_number])
         response = self.client.get(checkout_url)
         
         # Should redirect to Stripe
@@ -1419,8 +1424,8 @@ class ClientInvoiceTests(TestCase):
         line_item = call_kwargs['line_items'][0]
         self.assertEqual(line_item['price_data']['unit_amount'], 50000)
         
-        # Check metadata contains invoice ID
-        self.assertEqual(call_kwargs['metadata']['invoice_id'], str(invoice.id))
+        # Check metadata contains the customer-facing invoice number
+        self.assertEqual(call_kwargs['metadata']['invoice_id'], invoice.stripe_invoice_number)
 
     # Test that database reflects payment: invoice marked PAID
     @patch("finances.views.stripe")

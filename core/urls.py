@@ -48,7 +48,6 @@ urlpatterns = [
     path("administrator/transactions/", finance_views.admin_transactions, name="admin_transactions"),
     path("administrator/clients/", views.admin_clients, name="admin_clients"),
     path("administrator/editor/", views.admin_editor, name="admin_editor"),
-    path("administrator/history/", views.admin_history, name="admin_history"),
     path("administrator/appointments/", views.admin_appointments, name="admin_appointments"),
     path("administrator/appointments/<int:pk>/", views.admin_appointment_detail, name="admin_appointment_detail"),
     path("administrator/appointments/<int:pk>/cancel/", views.admin_appointment_cancel, name="admin_appointment_cancel"),
