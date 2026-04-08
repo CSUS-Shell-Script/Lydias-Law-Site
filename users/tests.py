@@ -225,6 +225,20 @@ class LoginTests(TestCase):
         self.assertEqual(response.status_code, 401)
         print("Assertion 4 PASS: response.status_code == 401")
 
+    def test_staff_login_page_shows_distinct_copy_and_client_login_link(self):
+        response = self.client.get(self.login_url, {"role": "admin"})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Staff login")
+        self.assertContains(response, "Authorized staff only")
+        self.assertContains(response, "Client login")
+        self.assertContains(response, f'href="{self.login_url}"')
+
+    def test_client_login_page_links_to_staff_login(self):
+        response = self.client.get(self.login_url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Are you an Admin?")
+        self.assertContains(response, f'href="{self.login_url}?role=admin"')
+
 
 class SignupTests(TestCase):
     """Test user signup functionality and error messages"""
