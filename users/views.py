@@ -10,6 +10,7 @@ from allauth.account.adapter import get_adapter
 from allauth.account.models import EmailAddress, EmailConfirmation, get_emailconfirmation_model
 from allauth.socialaccount.models import SocialApp
 from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods
 from django.http import Http404
 from finances.models import Invoice
@@ -31,11 +32,14 @@ def login(r):
     return render(r, "users/login.html", {"role": role, "google_login_enabled": google_login_enabled})
 
 # Handles login form submission and authenticates user
+@never_cache
 @require_http_methods(["GET", "POST"])
 def login_view(request):
     google_login_enabled = SocialApp.objects.filter(provider="google").exists()
 
     if request.method == "GET":
+        if request.user.is_authenticated:
+            return redirect("admin_dashboard" if request.user.is_staff else "client_dashboard")
         role = request.GET.get("role", "guest")
         return render(
             request,
@@ -62,6 +66,16 @@ def login_view(request):
     user = authenticate(request, email=email, password=password)
 
     if user is None:
+        candidate = User.objects.filter(email__iexact=email).first()
+        if candidate and (not candidate.is_active) and candidate.check_password(password):
+            messages.error(request, "Please verify your email to activate your account.")
+            return render(
+                request,
+                "users/login.html",
+                {"role": role, "google_login_enabled": google_login_enabled},
+                status=403,
+            )
+
         if role == "admin":
             email_exists = User.objects.filter(email__iexact=email, is_staff=True).exists()
         else:

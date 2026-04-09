@@ -20,7 +20,7 @@ from finances import views as finance_views
 ''' IMPORTANT FOR ALL WHO READ '''
 
 urlpatterns = [
-    # Public pages
+    ########## Public pages ##########
     path("", home, name="home"),
     path("practice-areas/", views.practice_areas, name="practice_areas"),
     path("about/", about, name="about"),
@@ -33,13 +33,14 @@ urlpatterns = [
     path("payment/success/", views.payment_success, name="payment_success"),
     path("payment/failure/", views.payment_failure, name="payment_failure"),
 
-    # users pages
+    ########## Users pages ##########
     path("users/", include("users.urls")),
     # path("login/", users.views.login, name="login"),
     # path("signup/", views.signup, name="signup"),
     # path("accounts/", include("allauth.urls")),
     # path('verify/', views.confirmation_page, name='confirmation_page'),
 
+    ########## Admin pages ##########
     # admin panel pages (using 'administrator' to avoid conflict with django "admin" keyword)
     path("administrator/", users_admin_dashboard, name="admin_dashboard"),
     path("administrator/dashboard/", users_admin_dashboard, name="admin_dashboard"),
@@ -47,7 +48,6 @@ urlpatterns = [
     path("administrator/transactions/", finance_views.admin_transactions, name="admin_transactions"),
     path("administrator/clients/", views.admin_clients, name="admin_clients"),
     path("administrator/editor/", views.admin_editor, name="admin_editor"),
-    path("administrator/history/", views.admin_history, name="admin_history"),
     path("administrator/appointments/", views.admin_appointments, name="admin_appointments"),
     path("administrator/appointments/<int:pk>/", views.admin_appointment_detail, name="admin_appointment_detail"),
     path("administrator/appointments/<int:pk>/cancel/", views.admin_appointment_cancel, name="admin_appointment_cancel"),
@@ -59,10 +59,11 @@ urlpatterns = [
     path("administrator/create_invoices/", finances_create_invoice, name="admin_create_invoices"),
     path("administrator/invoice_confirmation/", finances_invoice_confirmation, name="admin_invoice_confirmation"),
 
-    # client pages 
-    path("client/about/", about, {'client': True}, name="client_about"),
+    ########### Client pages ###########
+    # These have "view.<something" because we are calling it from core > views.py (needed for testing)
+    path("client/about/", views.client_about, name="client_about"),
     path("client/account/", views.client_account, name="client_account"),
-    path("client/contact/", contact, {'client': True}, name="client_contact"),
+    path("client/contact/", views.client_contact, name="client_contact"),
     path("client/dashboard/", users_client_dashboard, name="client_dashboard"),
     path("client/practice-areas/", views.client_practice_areas, name="client_practice_areas"),
     path("client/invoices/", views.client_invoices, name="client_invoices"),

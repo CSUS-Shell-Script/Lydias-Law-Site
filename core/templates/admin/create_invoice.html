@@ -203,11 +203,6 @@ input, textarea {
 
 {% block content %}
 
-<!--
-    Error messages are currently being displayed at the top of the screen,
-    But with current implementation, it causes the header card to get shifted down when an error is closed.
--->
-<div class="container-fluid px-4 pt-3" id="invoice-response"></div>
 
 <!-- Page Header -->
 <div class="invoice-header-card">
@@ -288,6 +283,13 @@ input, textarea {
 <button type="submit" class="submit-btn">Create Invoice</button>
 </form>
 </div>
+
+<!--
+    Error messages were being displayed at the top of the screen,
+    But with it is difficult to notice them since this page is long.
+    Putting it closer to the button will help admin clients notice it easier.
+-->
+<div class="container-fluid px-4 pt-3" id="invoice-response"></div>
 
 <script>
 function formatCurrency(value) {

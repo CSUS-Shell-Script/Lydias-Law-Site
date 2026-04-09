@@ -7,6 +7,8 @@ from django.urls import reverse
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from core.decorators import superuser_required
+from django.core.validators import validate_email
+from django.core.exceptions import ValidationError
 
 from .models import Appointments, Invitee
 from users.models import User
@@ -46,6 +48,24 @@ def calendly_webhook(request):
         if not calendly_event_uri:
             return HttpResponseBadRequest("Missing event uri")
 
+         # ---- Validate Required Fields ----
+        invitee_name = data.get("name", "").strip()
+        invitee_email = data.get("email", "").strip()
+        
+        # Check for blank name
+        if not invitee_name:
+            return JsonResponse({"status": "rejected", "reason": "blank name"}, status=400)
+        
+        # Check for blank email
+        if not invitee_email:
+            return JsonResponse({"status": "rejected", "reason": "blank email"}, status=400)
+        
+        # Validate email format
+        try:
+            validate_email(invitee_email)
+        except ValidationError:
+            return JsonResponse({"status": "rejected", "reason": "invalid email format"}, status=400)
+        
         # Start / end time
         start_time_str = scheduled_event.get("start_time")
         end_time_str = scheduled_event.get("end_time")

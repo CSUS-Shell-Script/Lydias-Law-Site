@@ -2,7 +2,7 @@ from datetime import timedelta
 from datetime import timedelta
 
 from django.contrib.messages import get_messages
-from django.test import TestCase, Client
+from django.test import TestCase, Client, RequestFactory
 from django.urls import reverse
 from django.utils import timezone
 from django.utils import timezone
@@ -14,6 +14,9 @@ from users.models import User
 from django.contrib.auth import get_user_model
 from finances.models import Invoice
 from allauth.account.models import EmailAddress
+from django.core.exceptions import PermissionDenied
+from django.template import Context, Template
+from core.decorators import superuser_required
 
 User = get_user_model()
 
@@ -538,7 +541,143 @@ class ClientNavbarTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, f'href="{reverse("home")}"')
 
+# LLW-298 - Test: No cross-user data access (client A can't see client B's data)
+class DataIsolationTests(TestCase):
+    def setUp(self):
+
+        # User1
+        self.user1 = User.objects.create_user(
+            email="a@test.com",
+            password="pass",   
+            role=User.Role.CLIENT, 
+            is_active=True,                   
+        )
+        
+        # User2
+        self.user2 = User.objects.create_user(
+            email="b@test.com",
+            password="pass",   
+            role=User.Role.CLIENT, 
+            is_active=True,                   
+        )
+
+        # User1 and User2 appointments
+        now = timezone.now()
+        self.appt1 = Appointments.objects.create(
+            user_id=self.user1,
+            start_time=now + timedelta(days=1),
+            comments="Appointment for user1",
+            approved=True,
+        )
+        self.appt2 = Appointments.objects.create(
+            user_id=self.user2,
+            start_time=now + timedelta(days=1),
+            comments="Appointment for user2",
+            approved=True,
+        )
+
+    # Check and make sure they have the proper text for their user appointment
+    def test_user_cannot_see_other_users_data(self):
+        self.client.login(email="a@test.com", password="pass")
+
+        response = self.client.get(reverse("client_dashboard"))
+
+        self.assertContains(response, "Appointment for user1")
+        self.assertNotContains(response, "Appointment for user2")
+
+# LLW-298 - Test: Every /client/* route returns 302 (redirect to login) for unauthenticated users
+class ClientRouteAuthTests(TestCase):
+    def test_client_routes_require_login(self):
+        urls = [
+            reverse("client_about"),
+            reverse("client_account"),
+            reverse("client_contact"),
+            reverse("client_dashboard"),
+            reverse("client_practice_areas"),
+            reverse("client_invoices"),
+            reverse("client_privacy"),
+            reverse("client_appointment_confirmation"),
+        ]
+
+        for url in urls:
+            response = self.client.get(url)
+            print(f"{url} -> {response.status_code}")
+            self.assertEqual(response.status_code, 302)
+            self.assertIn("/login", response.url)
+
+# LLW-298 - Test: Webhook endpoints (/webhooks/stripe/, /appointments/webhooks/calendly/) are CSRF exempt
+# Also checking if these paths exists
+class WebhookTests(TestCase):
+    def test_stripe_webhook_csrf_exempt(self):
+        response = self.client.post("/webhooks/stripe/", data={})
+        self.assertNotEqual(response.status_code, 403)
+        self.assertNotEqual(response.status_code, 404) # make sure this path exists
+
+    def test_calendly_webhook_csrf_exempt(self):
+        response = self.client.post("/appointments/webhooks/calendly/", data={})
+        self.assertNotEqual(response.status_code, 403)
+        self.assertNotEqual(response.status_code, 404) # make sure this path exists
+
 ############################### Admin pages ###############################
+
+# LLW-298 - Test: Every /administrator/* route returns 403 for non-superusers
+class AdminPermissionTests(TestCase):
+
+    def setUp(self):
+        # Make client user
+        self.client_user = User.objects.create_user(
+            email="client@example.com",
+            password="pw",
+            first_name="Client",
+            last_name="User",
+            is_staff=False,
+            is_active=True,
+        )
+
+        # Give client user an appointment to test
+        now = timezone.now()
+        self.appointment = Appointments.objects.create(
+            user_id=self.client_user,
+            start_time=now + timedelta(days=1),
+            comments="Appointment 1",
+            approved=True,
+        )
+
+    # Test if /administrator/* route returns 403 for non-superusers
+    def test_admin_routes_forbidden_for_non_superuser(self):
+        self.client.force_login(self.client_user)
+        urls = [
+            reverse("admin_dashboard"),
+            reverse("admin_transactions"),
+            reverse("admin_clients"),
+            reverse("admin_schedule"),
+            reverse("admin_editor"),
+            reverse("admin_history"),
+            reverse("admin_appointments"),
+            reverse("admin_create_invoices"),
+            reverse("admin_invoice_confirmation"),
+            reverse("admin_appointment_detail", kwargs={"pk": self.appointment.pk}),
+        ]
+
+        for url in urls:
+            response = self.client.get(url)
+            print(f"{url} -> {response.status_code}")
+            self.assertEqual(response.status_code, 403)
+
+    # Test /administrator/* route returns 403 for non-superusers but for POST links
+    def test_admin_post_routes_forbidden_for_non_superuser(self):
+        self.client.force_login(self.client_user)
+
+        urls = [
+            reverse("admin_appointment_cancel", kwargs={"pk": self.appointment.pk}),
+            reverse("admin_appointment_accept", kwargs={"pk": self.appointment.pk}),
+            reverse("admin_appointment_update_status", kwargs={"pk": self.appointment.pk}),
+        ]
+
+        for url in urls:
+            response = self.client.post(url)
+            print(f"{url} -> {response.status_code}")
+            self.assertEqual(response.status_code, 403)
 
 class AdminAppointmentActionsTests(TestCase):
     def setUp(self):
@@ -1268,3 +1407,133 @@ class TemplateContentVerificationTest(TestCase):
         # 'Book Appointment' button links to contact page
         self.assertContains(response, reverse("contact"))
         self.assertContains(response, "Book Appointment")
+
+# CUSTOM DECORATORS AND UTILITIES TEST - LLW-304 *****
+class SuperuserRequiredDecoratorTest(TestCase):
+    def setUp(self):
+        self.factory = RequestFactory()
+        # A simple view to wrap with the decorator
+        @superuser_required
+        def dummy_view(request):
+            from django.http import HttpResponse
+            return HttpResponse("OK")
+        self.dummy_view = dummy_view
+
+        # Regular client user - not staff, not superuser, not ADMIN role
+        self.regular_user = User.objects.create_user(
+            email="regular@test.com",
+            password="Pass123!",
+            role=User.Role.CLIENT,
+            is_active=True,
+        )
+
+        # Superuser
+        self.superuser = User.objects.create_user(
+            email="super@test.com",
+            password="Pass123!",
+            role=User.Role.ADMIN,
+            is_active=True,
+            is_staff=True,
+            is_superuser=True,
+        )
+
+        # Staff user (is_staff=True but not superuser)
+        self.staff_user = User.objects.create_user(
+            email="staff@test.com",
+            password="Pass123!",
+            role=User.Role.ADMIN,
+            is_active=True,
+            is_staff=True,
+        )
+
+        # Admin role user
+        self.admin_role_user = User.objects.create_user(
+            email="adminrole@test.com",
+            password="Pass123!",
+            role=User.Role.ADMIN,
+            is_active=True,
+        )
+
+    def _make_request(self, user):
+        request = self.factory.get("/fake-url/")
+        request.user = user
+        return request
+    
+    # --- Should be blocked (403) ---
+    def test_unauthenticated_user_gets_403(self):
+        """Unauthenticated users should be denied."""
+        from django.contrib.auth.models import AnonymousUser
+        request = self.factory.get("/fake-url/")
+        request.user = AnonymousUser()
+        with self.assertRaises(PermissionDenied):
+            self.dummy_view(request)
+
+    def test_regular_client_user_gets_403(self):
+        """A regular client user should be denied."""
+        request = self._make_request(self.regular_user)
+        with self.assertRaises(PermissionDenied):
+            self.dummy_view(request)
+
+    # --- Should be allowed through ---
+    def test_superuser_is_allowed(self):
+        """A superuser should pass through the decorator."""
+        request = self._make_request(self.superuser)
+        response = self.dummy_view(request)
+        self.assertEqual(response.status_code, 200)
+
+    def test_staff_user_is_allowed(self):
+        """A staff user (is_staff=True) should pass through the decorator."""
+        request = self._make_request(self.staff_user)
+        response = self.dummy_view(request)
+        self.assertEqual(response.status_code, 200)
+
+    def test_admin_role_user_is_allowed(self):
+        """A user with role=ADMIN should pass through the decorator."""
+        request = self._make_request(self.admin_role_user)
+        response = self.dummy_view(request)
+        self.assertEqual(response.status_code, 200)
+
+class FormatPhoneFilterTest(TestCase):
+    def _render(self, value):
+        """Helper: render {{ value|format_phone }} and return the string."""
+        t = Template("{% load phone_filter %}{{ value|format_phone }}")
+        return t.render(Context({"value": value}))
+    
+    # --- 10-digit formatting ---
+    def test_10_digit_number_formats_correctly(self):
+        """10-digit number should be formatted as (XXX) XXX-XXXX."""
+        result = self._render("9165551234")
+        self.assertEqual(result, "(916) 555 - 1234")
+
+    def test_10_digit_number_with_dashes(self):
+        """Dashes should be stripped and number formatted correctly."""
+        result = self._render("916-555-1234")
+        self.assertEqual(result, "(916) 555 - 1234")
+
+    def test_10_digit_number_with_parentheses(self):
+        """Parentheses and spaces should be stripped and formatted correctly."""
+        result = self._render("(916) 555-1234")
+        self.assertEqual(result, "(916) 555 - 1234")
+
+    # --- Non-10-digit: return raw value ---
+    def test_short_number_returns_raw_value(self):
+        """Numbers with fewer than 10 digits should return the raw value."""
+        result = self._render("12345")
+        self.assertEqual(result, "12345")
+
+    def test_long_number_returns_raw_value(self):
+        """Numbers with more than 10 digits should return the raw value."""
+        result = self._render("19165551234")
+        self.assertEqual(result, "19165551234")
+
+    # --- Empty / None ---
+    def test_empty_string_returns_placeholder(self):
+        """Empty string should return '--'."""
+        result = self._render("")
+        self.assertEqual(result, "--")
+        
+    def test_none_returns_placeholder(self):
+        """None should return '--'."""
+        t = Template("{% load phone_filter %}{{ value|format_phone }}")
+        result = t.render(Context({"value": None}))
+        self.assertEqual(result, "--")

@@ -30,6 +30,7 @@ DEBUG = env("DEBUG")
 SECRET_KEY = env("SECRET_KEY")
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["127.0.0.1", "localhost"])
 GOOGLE_MAPS_API_KEY = env("GOOGLE_MAPS_API_KEY")
+BUILDING_ADDRESS = env("BUILDING_ADDRESS")
 CALENDLY_CLIENT_ID = env("CALENDLY_CLIENT_ID")
 CALENDLY_CLIENT_PASSWORD = env("CALENDLY_CLIENT_PASSWORD")
 CALENDLY_WEBHOOK_KEY = env("CALENDLY_WEBHOOK_KEY")
@@ -39,10 +40,10 @@ STRIPE_SECRET_KEY = env("STRIPE_SECRET_KEY")
 STRIPE_PUBLISHABLE_KEY = env("STRIPE_PUBLISHABLE_KEY")
 
 # HTTPS Settings
-# SECURE_SSL_REDIRECT = True
-# SESSION_COOKIE_SECURE = True
-# CSRF_COOKIE_SECURE = True
-# SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+SECURE_SSL_REDIRECT = True
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = True
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 # Uncomment below if using ngrok to test webhook
 
@@ -56,6 +57,10 @@ STRIPE_PUBLISHABLE_KEY = env("STRIPE_PUBLISHABLE_KEY")
 #         "https://your-production-domain.com",
 #     ]
 
+CSRF_TRUSTED_ORIGINS = [
+    "https://adoptionsofsac.com",
+    "https://www.adoptionsofsac.com",
+]
 
 # Application definition
 
@@ -267,7 +272,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'America/Los_Angeles'
 
 USE_I18N = True
 

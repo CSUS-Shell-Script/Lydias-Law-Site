@@ -185,9 +185,10 @@ def stripe_webhook(request):
     )
     return JsonResponse({"status": "success"}, status=200)
 
+
 def create_invoice_items(stripe_customer_id, descriptions, quantities, unit_prices):
     # Creates an invoice item object for each unique line item.
-    # Quanitity and unit_price are taken into consideration, total amount
+    # Quantity and unit_price are taken into consideration, total amount
     # is calculated during the creation of the stripe invoice.
     for desc, quantity, price in zip(descriptions, quantities, unit_prices):
         try:
@@ -211,6 +212,7 @@ def create_invoice_items(stripe_customer_id, descriptions, quantities, unit_pric
         except ValueError:
             return JsonResponse({"success": False, "error": "Invalid quantity or price."})
 
+@superuser_required
 def create_invoice(request):
     if request.method == "POST":
         # Customer Information.
@@ -278,6 +280,7 @@ def create_invoice(request):
                 user=user,
                 amount=stripe_invoice.amount_due,
                 stripe_invoice_id=stripe_invoice.id,
+                stripe_invoice_number=stripe_invoice.number,
                 hosted_invoice_url=stripe_invoice.hosted_invoice_url,
                 status=Invoice.Status.PENDING,  # Defaults to pending, webhook handles changes.
             )
@@ -288,7 +291,7 @@ def create_invoice(request):
                     "redirect_url": "/administrator/invoice_confirmation/",
                     "hosted_invoice_url": stripe_invoice.hosted_invoice_url,
                     "stripe_invoice_id": stripe_invoice.id,
-                    
+                    "stripe_invoice_number": stripe_invoice.number,
                 }
             )
 
@@ -299,6 +302,7 @@ def create_invoice(request):
 
     return render(request, "admin/create_invoice.html")
 
+@superuser_required
 def invoice_confirmation(request):
     return render(request, "admin/invoice_confirmation.html")
 
@@ -353,6 +357,7 @@ def admin_stripe_invoice_detail(request, stripe_invoice_id):
 
     return JsonResponse({
         "id": inv.get("id"),
+        "number": inv.get("number"),
         "status": inv.get("status"),
         "amount_due": inv.get("amount_due"),    #cents
         "amount_paid": inv.get("amount_paid"),  #cents
@@ -387,6 +392,7 @@ def admin_stripe_invoices_for_user(request, user_id):
     for inv in res.get("data", []):
         invoices.append({
              "id": inv.get("id"),
+             "number": inv.get("number"),
             "status": inv.get("status"),
             "amount_due": inv.get("amount_due"),   
             "amount_paid": inv.get("amount_paid"),  
@@ -442,9 +448,8 @@ def void_invoice(request, stripe_invoice_id):
 def create_checkout_session(request, invoice_id):
     # Clear double messages
     storage = get_messages(request)
-    try:
-        invoice = Invoice.objects.get(id=invoice_id)
-    except Invoice.DoesNotExist:
+    invoice = Invoice.objects.filter(stripe_invoice_number=invoice_id).first()
+    if not invoice:
         messages.error(request, "Invoice not found")
         return redirect('payment')
 
@@ -459,13 +464,13 @@ def create_checkout_session(request, invoice_id):
             "price_data": {
                 "currency": "usd",
                 "product_data": {
-                    "name": f"Invoice #{invoice.id}",
+                    "name": f"Invoice #{invoice.stripe_invoice_number}",
                 },
                 "unit_amount": invoice.amount,
             },
             "quantity": 1,
         }],
-        metadata={"invoice_id": str(invoice.id)},
+        metadata={"invoice_id": str(invoice.stripe_invoice_number)},
         success_url="http://localhost:8000/payment/success/",
 		cancel_url="http://localhost:8000/dashboard/",
 	)

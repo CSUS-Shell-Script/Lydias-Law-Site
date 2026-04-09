@@ -30,10 +30,10 @@ import re
     Home, About, and Contact are all being handled by site content views,
     making some of these and potentially more in the future obsolete.
 '''
-# Public views
+############################ Public Views ############################ 
 def home(r):
     role = r.GET.get("role", "guest")
-    return render(r, "home.html", {"role": role, "GOOGLE_MAPS_API_KEY": settings.GOOGLE_MAPS_API_KEY})
+    return render(r, "home.html", {"role": role})
   
 # Is this method 
 def practice_areas(r):
@@ -42,7 +42,6 @@ def practice_areas(r):
 
 def about(r): return render(r, "about.html")
 def services(r): return render(r, "services.html")
-def contact(r): return render(r, "contact.html", {"GOOGLE_MAPS_API_KEY": settings.GOOGLE_MAPS_API_KEY})
 
 def payment(request):
     """
@@ -52,18 +51,13 @@ def payment(request):
     if request.method != "POST":
         return render(request, "payment.html")
 
-    raw_invoice_id = (request.POST.get("invoice_id") or "").strip()
-    if not raw_invoice_id or not raw_invoice_id.isdigit():
-        messages.error(request, "Incorrect Invoice ID.")
-        return render(request, "payment.html", status=400)
-
-    invoice_id = int(raw_invoice_id)
-    invoice = Invoice.objects.filter(id=invoice_id).first()
+    invoice_number = (request.POST.get("invoice_id") or "").strip()
+    invoice = Invoice.objects.filter(stripe_invoice_number=invoice_number).first()
     if not invoice:
-        messages.error(request, "Incorrect Invoice ID.")
+        messages.error(request, "Incorrect/Invalid Invoice ID.")
         return render(request, "payment.html", status=404)
 
-    return redirect("create_checkout_session", invoice_id=invoice_id)
+    return redirect("create_checkout_session", invoice_id=invoice_number)
 
 def schedule(r): return render(r, "schedule.html")
 def privacy(r): return render(r, "privacy.html")
@@ -75,16 +69,16 @@ def login(r):
     role = r.GET.get("role", "guest")
     return render(r, "users/login.html", {"role": role})
 
-# admin views (login temporarily disabled for testing)
-# @superuser_required
+############################ Admin Views ############################ 
+#  @superuser_required
 #def admin_dashboard(r): return render(r, "admin/dashboard.html")
-# @superuser_required
+@superuser_required
 def admin_schedule(r): return render(r, "admin/schedule.html")
 # @superuser_required
 def admin_clients(r): return render(r, "admin/clients.html")
 # @superuser_required
 
-@login_required
+@superuser_required
 def admin_clients(request):
     users = User.objects.filter(role__in=[User.Role.CLIENT])
 
@@ -187,11 +181,9 @@ def admin_editor(request):
         'content': content,
         'faq_formset': faq_formset,
     })
-# @superuser_required
-def admin_history(r): return render(r, "admin/history.html")
-# @superuser_required
+@superuser_required
 def admin_appointment_confirmation(r): return render(r, "admin/appointment_confirmation.html")
-# @superuser_required
+@superuser_required
 def admin_create_invoices(r): return render(r, "admin/create_invoice.html")
 
 @superuser_required
@@ -380,8 +372,8 @@ def admin_appointment_update_status(request, pk):
     messages.success(request, "Status updated.")
     return redirect(next_url)
 
-# Client Views
-#@login_required
+############################ Client Views ############################ 
+@login_required
 def client_about(r): return render(r, "client/about.html")
 
 
@@ -448,11 +440,11 @@ def get_user_account_data(request):
         "phone": phone or ""
     }
 
-#@login_required
+@login_required
 def client_contact(r): return render(r, "client/contact.html")
 #@login_required
 #def client_payment(r): return render(r, "client/payment.html")
-#@login_required
+@login_required
 def client_practice_areas(r):
     content = WebsiteContent.objects.order_by("-versionNumber").first()
     return render(r, "client/practice_areas.html", {"content": content})
@@ -487,12 +479,12 @@ def client_invoices(r):
         "past_invoices": past_invoices,
     })
 
-#@login_required
+@login_required
 def client_privacy(r):
     return render(r, "client/privacy.html")
-#@login_required
+@login_required
 def client_appointment_request_confirmation(r): return render(r, "client/appointment_request_confirmation.html")
-#@login_required
+@login_required
 def client_appointment_denied_confirmation(r): return render(r, "client/appointment_denied_confirmation.html")
-#@login_required
+@login_required
 def client_appointment_confirmation(r): return render(r, "client/appointment_confirmation.html")
