@@ -1070,3 +1070,159 @@ class FormSecurityTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self._assert_passwords_not_exposed(response, old_password, new_password)
+
+# USER MODEL TEST - LLW-302 ****
+class UserModelTest(TestCase):
+    # --- Custom user creation via email ---
+    def test_create_user_with_email(self):
+        """User is created with email as the unique identifier."""
+        user = User.objects.create_user(
+            email="test@test.com",
+            password="Pass123!",
+        )
+        self.assertEqual(user.email, "test@test.com")
+    def test_username_field_is_none(self):
+        """Username field should be None — email is used instead."""
+        user = User.objects.create_user(
+            email="test@test.com",
+            password="Pass123!",
+        )
+        self.assertIsNone(user.username)
+
+    def test_create_user_without_email_raises_error(self):
+        """Creating a user without an email should raise a ValueError."""
+        with self.assertRaises(ValueError):
+            User.objects.create_user(email="", password="Pass123!")
+
+    def test_user_email_is_unique(self):
+        """Two users cannot share the same email."""
+        User.objects.create_user(email="unique@test.com", password="Pass123!")
+        with self.assertRaises(Exception):
+            User.objects.create_user(email="unique@test.com", password="Pass123!")
+
+    def test_password_is_hashed(self):
+        """Password should be stored hashed, not in plain text."""
+        user = User.objects.create_user(
+            email="test@test.com",
+            password="Pass123!",
+        )
+        self.assertNotEqual(user.password, "Pass123!")
+        self.assertTrue(user.check_password("Pass123!"))
+
+    # --- Superuser creation ---
+    def test_create_superuser_sets_is_staff(self):
+        """create_superuser should set is_staff=True."""
+        user = User.objects.create_superuser(
+            email="super@test.com",
+            password="Pass123!",
+        )
+        self.assertTrue(user.is_staff)
+
+    def test_create_superuser_sets_is_superuser(self):
+        """create_superuser should set is_superuser=True."""
+        user = User.objects.create_superuser(
+            email="super@test.com",
+            password="Pass123!",
+        )
+        self.assertTrue(user.is_superuser)
+
+    def test_create_superuser_without_is_staff_raises_error(self):
+        """create_superuser should raise ValueError if is_staff=False."""
+        with self.assertRaises(ValueError):
+            User.objects.create_superuser(
+                email="super@test.com",
+                password="Pass123!",
+                is_staff=False,
+            )
+
+    def test_create_superuser_without_is_superuser_raises_error(self):
+        """create_superuser should raise ValueError if is_superuser=False."""
+        with self.assertRaises(ValueError):
+            User.objects.create_superuser(
+                email="super@test.com",
+                password="Pass123!",
+                is_superuser=False,
+            )
+
+    # --- Role choices ---
+    def test_default_role_is_guest(self):
+        """New users should default to GUEST role."""
+        user = User.objects.create_user(
+            email="test@test.com",
+            password="Pass123!",
+        )
+        self.assertEqual(user.role, User.Role.GUEST)
+
+    def test_role_can_be_set_to_client(self):
+        """User role can be set to CLIENT."""
+        user = User.objects.create_user(
+            email="test@test.com",
+            password="Pass123!",
+            role=User.Role.CLIENT,
+        )
+        self.assertEqual(user.role, User.Role.CLIENT)
+
+    def test_role_can_be_set_to_admin(self):
+        """User role can be set to ADMIN."""
+        user = User.objects.create_user(
+            email="test@test.com",
+            password="Pass123!",
+            role=User.Role.ADMIN,
+        )
+        self.assertEqual(user.role, User.Role.ADMIN)
+
+    # --- retainer_balance defaults to 0 ---
+    def test_retainer_balance_defaults_to_zero(self):
+        """retainer_balance should default to 0."""
+        user = User.objects.create_user(
+            email="test@test.com",
+            password="Pass123!",
+        )
+        self.assertEqual(user.retainer_balance, 0)
+
+    # --- Phone number stored correctly ---
+    def test_phone_number_stores_correctly(self):
+        """Phone number should be saved and retrieved correctly."""
+        user = User.objects.create_user(
+            email="test@test.com",
+            password="Pass123!",
+            phone_number="9165551234",
+        )
+        self.assertEqual(user.phone_number, "9165551234")
+
+    def test_phone_number_defaults_to_none(self):
+        """Phone number should be None if not provided."""
+        user = User.objects.create_user(
+            email="test@test.com",
+            password="Pass123!",
+        )
+        self.assertIsNone(user.phone_number)
+
+    # --- payment_provider and provider_customer_id ---
+    def test_payment_provider_defaults_to_none(self):
+        """payment_provider should be None if not set."""
+        user = User.objects.create_user(
+            email="test@test.com",
+            password="Pass123!",
+        )
+        self.assertIsNone(user.payment_provider)
+
+    def test_provider_customer_id_defaults_to_none(self):
+        """provider_customer_id should be None if not set."""
+        user = User.objects.create_user(
+            email="test@test.com",
+            password="Pass123!",
+        )
+        self.assertIsNone(user.provider_customer_id)
+
+    def test_payment_provider_stores_correctly(self):
+        """payment_provider should be saved and retrieved correctly."""
+        user = User.objects.create_user(
+            email="test@test.com",
+            password="Pass123!",
+            payment_provider="stripe",
+            provider_customer_id="cus_abc123",
+        )
+        self.assertEqual(user.payment_provider, "stripe")
+        self.assertEqual(user.provider_customer_id, "cus_abc123")
+
