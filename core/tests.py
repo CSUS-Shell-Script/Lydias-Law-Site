@@ -2,7 +2,7 @@ from datetime import timedelta
 from datetime import timedelta
 
 from django.contrib.messages import get_messages
-from django.test import TestCase, Client
+from django.test import TestCase, Client, RequestFactory
 from django.urls import reverse
 from django.utils import timezone
 from django.utils import timezone
@@ -14,6 +14,9 @@ from users.models import User
 from django.contrib.auth import get_user_model
 from finances.models import Invoice
 from allauth.account.models import EmailAddress
+from django.core.exceptions import PermissionDenied
+from django.template import Context, Template
+from core.decorators import superuser_required
 
 User = get_user_model()
 
@@ -1404,3 +1407,133 @@ class TemplateContentVerificationTest(TestCase):
         # 'Book Appointment' button links to contact page
         self.assertContains(response, reverse("contact"))
         self.assertContains(response, "Book Appointment")
+
+# CUSTOM DECORATORS AND UTILITIES TEST - LLW-304 *****
+class SuperuserRequiredDecoratorTest(TestCase):
+    def setUp(self):
+        self.factory = RequestFactory()
+        # A simple view to wrap with the decorator
+        @superuser_required
+        def dummy_view(request):
+            from django.http import HttpResponse
+            return HttpResponse("OK")
+        self.dummy_view = dummy_view
+
+        # Regular client user - not staff, not superuser, not ADMIN role
+        self.regular_user = User.objects.create_user(
+            email="regular@test.com",
+            password="Pass123!",
+            role=User.Role.CLIENT,
+            is_active=True,
+        )
+
+        # Superuser
+        self.superuser = User.objects.create_user(
+            email="super@test.com",
+            password="Pass123!",
+            role=User.Role.ADMIN,
+            is_active=True,
+            is_staff=True,
+            is_superuser=True,
+        )
+
+        # Staff user (is_staff=True but not superuser)
+        self.staff_user = User.objects.create_user(
+            email="staff@test.com",
+            password="Pass123!",
+            role=User.Role.ADMIN,
+            is_active=True,
+            is_staff=True,
+        )
+
+        # Admin role user
+        self.admin_role_user = User.objects.create_user(
+            email="adminrole@test.com",
+            password="Pass123!",
+            role=User.Role.ADMIN,
+            is_active=True,
+        )
+
+    def _make_request(self, user):
+        request = self.factory.get("/fake-url/")
+        request.user = user
+        return request
+    
+    # --- Should be blocked (403) ---
+    def test_unauthenticated_user_gets_403(self):
+        """Unauthenticated users should be denied."""
+        from django.contrib.auth.models import AnonymousUser
+        request = self.factory.get("/fake-url/")
+        request.user = AnonymousUser()
+        with self.assertRaises(PermissionDenied):
+            self.dummy_view(request)
+
+    def test_regular_client_user_gets_403(self):
+        """A regular client user should be denied."""
+        request = self._make_request(self.regular_user)
+        with self.assertRaises(PermissionDenied):
+            self.dummy_view(request)
+
+    # --- Should be allowed through ---
+    def test_superuser_is_allowed(self):
+        """A superuser should pass through the decorator."""
+        request = self._make_request(self.superuser)
+        response = self.dummy_view(request)
+        self.assertEqual(response.status_code, 200)
+
+    def test_staff_user_is_allowed(self):
+        """A staff user (is_staff=True) should pass through the decorator."""
+        request = self._make_request(self.staff_user)
+        response = self.dummy_view(request)
+        self.assertEqual(response.status_code, 200)
+
+    def test_admin_role_user_is_allowed(self):
+        """A user with role=ADMIN should pass through the decorator."""
+        request = self._make_request(self.admin_role_user)
+        response = self.dummy_view(request)
+        self.assertEqual(response.status_code, 200)
+
+class FormatPhoneFilterTest(TestCase):
+    def _render(self, value):
+        """Helper: render {{ value|format_phone }} and return the string."""
+        t = Template("{% load phone_filter %}{{ value|format_phone }}")
+        return t.render(Context({"value": value}))
+    
+    # --- 10-digit formatting ---
+    def test_10_digit_number_formats_correctly(self):
+        """10-digit number should be formatted as (XXX) XXX-XXXX."""
+        result = self._render("9165551234")
+        self.assertEqual(result, "(916) 555 - 1234")
+
+    def test_10_digit_number_with_dashes(self):
+        """Dashes should be stripped and number formatted correctly."""
+        result = self._render("916-555-1234")
+        self.assertEqual(result, "(916) 555 - 1234")
+
+    def test_10_digit_number_with_parentheses(self):
+        """Parentheses and spaces should be stripped and formatted correctly."""
+        result = self._render("(916) 555-1234")
+        self.assertEqual(result, "(916) 555 - 1234")
+
+    # --- Non-10-digit: return raw value ---
+    def test_short_number_returns_raw_value(self):
+        """Numbers with fewer than 10 digits should return the raw value."""
+        result = self._render("12345")
+        self.assertEqual(result, "12345")
+
+    def test_long_number_returns_raw_value(self):
+        """Numbers with more than 10 digits should return the raw value."""
+        result = self._render("19165551234")
+        self.assertEqual(result, "19165551234")
+
+    # --- Empty / None ---
+    def test_empty_string_returns_placeholder(self):
+        """Empty string should return '--'."""
+        result = self._render("")
+        self.assertEqual(result, "--")
+        
+    def test_none_returns_placeholder(self):
+        """None should return '--'."""
+        t = Template("{% load phone_filter %}{{ value|format_phone }}")
+        result = t.render(Context({"value": None}))
+        self.assertEqual(result, "--")
