@@ -192,7 +192,7 @@ class LoginTests(TestCase):
         )
         
         print("\nTEST: Login with unverified email (unverified@example.com)")
-        print("EXPECTED: Login fails since user is inactive, status=401, user not authenticated")
+        print("EXPECTED: Login fails since user is inactive, status=403, user not authenticated")
         
         post_data = {
             "email": "unverified@example.com",
@@ -211,19 +211,31 @@ class LoginTests(TestCase):
         print("Assertion 1 PASS: user is not authenticated")
         
         # Check that error message is displayed
-        # Note: When user is inactive, Django's authenticate() returns None,
-        # so the view shows the "did not match" message instead of the explicit verification message
         self.assertEqual(len(messages_list), 1)
         print("Assertion 2 PASS: exactly 1 error message displayed")
         self.assertEqual(
             actual_message,
-            "Invalid password."
+            "Please verify your email to activate your account."
         )
         print("Assertion 3 PASS: error message matches expected")
         
-        # Check response status code indicates an error (401 for unauthorized)
-        self.assertEqual(response.status_code, 401)
-        print("Assertion 4 PASS: response.status_code == 401")
+        # Check response status code indicates an error (403 for inactive)
+        self.assertEqual(response.status_code, 403)
+        print("Assertion 4 PASS: response.status_code == 403")
+
+    def test_staff_login_page_shows_distinct_copy_and_client_login_link(self):
+        response = self.client.get(self.login_url, {"role": "admin"})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Staff login")
+        self.assertContains(response, "Authorized staff only")
+        self.assertContains(response, "Client login")
+        self.assertContains(response, f'href="{self.login_url}"')
+
+    def test_client_login_page_links_to_staff_login(self):
+        response = self.client.get(self.login_url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Are you an Admin?")
+        self.assertContains(response, f'href="{self.login_url}?role=admin"')
 
     def test_staff_login_page_shows_distinct_copy_and_client_login_link(self):
         response = self.client.get(self.login_url, {"role": "admin"})
@@ -897,6 +909,12 @@ class FormSecurityTests(TestCase):
         )
         social_app.sites.add(site)
 
+    def _extract_csrf_token(self, response):
+        content = response.content.decode("utf-8")
+        match = re.search(r'name="csrfmiddlewaretoken" value="([^"]+)"', content)
+        self.assertIsNotNone(match, "Could not find csrfmiddlewaretoken in response HTML")
+        return match.group(1)
+
     # EMAIL VALIDATION TESTS
     # Signup email validation already done under SignupTests class (function: test_signup_shows_error_for_invalid_email_format)
     # Test: Login rejects invalid email
@@ -926,6 +944,83 @@ class FormSecurityTests(TestCase):
         response = self.client.get(reverse("login"))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "csrfmiddlewaretoken")
+
+    def test_login_get_is_never_cached(self):
+        response = self.client.get(reverse("login"))
+        cache_control = response.headers.get("Cache-Control", "")
+        self.assertIn("no-store", cache_control)
+        self.assertIn("no-cache", cache_control)
+        pragma = response.headers.get("Pragma")
+        if pragma is not None:
+            self.assertEqual(pragma, "no-cache")
+
+    def test_authenticated_client_get_login_redirects_to_client_dashboard(self):
+        self.client.force_login(self.client_user)
+        response = self.client.get(reverse("login"))
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), reverse("client_dashboard"))
+
+    def test_authenticated_staff_get_login_redirects_to_admin_dashboard(self):
+        self.client.force_login(self.admin_user)
+        response = self.client.get(reverse("login"))
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), reverse("admin_dashboard"))
+
+    def test_login_reusing_stale_csrf_token_returns_403(self):
+        """
+        Simulate the real-world back-button cached-form scenario:
+        - user loads login page (token A)
+        - user logs in (Django rotates CSRF token/cookie)
+        - user submits cached login form again (still token A) -> 403
+        """
+        csrf_client = Client(enforce_csrf_checks=True)
+
+        first_get = csrf_client.get(reverse("login"))
+        token_a = self._extract_csrf_token(first_get)
+
+        login_resp = csrf_client.post(
+            reverse("login"),
+            {
+                "email": "client@example.com",
+                "password": self.client_password,
+                "csrfmiddlewaretoken": token_a,
+            },
+            follow=False,
+        )
+        self.assertIn(login_resp.status_code, [302, 303])
+
+        stale_post = csrf_client.post(
+            reverse("login"),
+            {
+                "email": "client@example.com",
+                "password": self.client_password,
+                "csrfmiddlewaretoken": token_a,
+            },
+            follow=False,
+        )
+        self.assertEqual(stale_post.status_code, 403)
+        self.assertIn("CSRF", stale_post.content.decode("utf-8"))
+
+    def test_inactive_user_login_returns_403_with_verify_message(self):
+        inactive_email = "inactive@example.com"
+        inactive_password = "SomePassword_123!"
+        User.objects.create_user(
+            email=inactive_email,
+            password=inactive_password,
+            first_name="Inactive",
+            last_name="User",
+            is_staff=False,
+            is_active=False,
+        )
+
+        response = self.client.post(
+            reverse("login"),
+            {"email": inactive_email, "password": inactive_password},
+            follow=True,
+        )
+        self.assertEqual(response.status_code, 403)
+        messages_list = [m.message for m in get_messages(response.wsgi_request)]
+        self.assertIn("Please verify your email to activate your account.", messages_list)
 
     # Test: Signup form has csrf token
     def test_signup_form_contains_csrf_token(self):
