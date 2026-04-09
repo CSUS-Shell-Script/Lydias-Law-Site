@@ -52,18 +52,13 @@ def payment(request):
     if request.method != "POST":
         return render(request, "payment.html")
 
-    raw_invoice_id = (request.POST.get("invoice_id") or "").strip()
-    if not raw_invoice_id or not raw_invoice_id.isdigit():
-        messages.error(request, "Incorrect Invoice ID.")
-        return render(request, "payment.html", status=400)
-
-    invoice_id = int(raw_invoice_id)
-    invoice = Invoice.objects.filter(id=invoice_id).first()
+    invoice_number = (request.POST.get("invoice_id") or "").strip()
+    invoice = Invoice.objects.filter(stripe_invoice_number=invoice_number).first()
     if not invoice:
-        messages.error(request, "Incorrect Invoice ID.")
+        messages.error(request, "Incorrect/Invalid Invoice ID.")
         return render(request, "payment.html", status=404)
 
-    return redirect("create_checkout_session", invoice_id=invoice_id)
+    return redirect("create_checkout_session", invoice_id=invoice_number)
 
 def schedule(r): return render(r, "schedule.html")
 def privacy(r): return render(r, "privacy.html")
@@ -187,8 +182,6 @@ def admin_editor(request):
         'content': content,
         'faq_formset': faq_formset,
     })
-@superuser_required
-def admin_history(r): return render(r, "admin/history.html")
 @superuser_required
 def admin_appointment_confirmation(r): return render(r, "admin/appointment_confirmation.html")
 @superuser_required
