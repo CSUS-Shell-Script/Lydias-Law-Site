@@ -7,17 +7,19 @@ from django.contrib.auth import get_user_model, authenticate
 from django.contrib.sites.models import Site
 from django.test import TestCase, Client
 from django.urls import reverse
-from unittest.mock import patch, MagicMock
-
+from unittest.mock import patch, MagicMock, PropertyMock
+from datetime import datetime
 from allauth.socialaccount.models import SocialApp
 
-from finances.models import Invoice
+from finances.models import Invoice, Payment, StripeWebhookEvent
+from finances.views import get_or_create_stripe_customer_id
 from users.models import AdminProfile
 from decimal import Decimal
 
 import logging
-
+import stripe
 import json
+import uuid
 
 User = get_user_model()
 
@@ -365,9 +367,9 @@ class GuestInvoiceIdValidationTests(TestCase):
         url = reverse("payment")
         resp = self.client.post(url, data={"invoice_id": "999999"}, follow=True)
         self.assertEqual(resp.status_code, 404)
-        self.assertIn("Incorrect Invoice ID.", self._messages(resp))
+        self.assertIn("Incorrect/Invalid Invoice ID.", self._messages(resp))
 
-    def test_payment_post_with_valid_invoice_id_redirects_to_checkout(self):
+    def test_payment_post_with_valid_invoice_number_redirects_to_checkout(self):
         user = User.objects.create_user(
             email="client@example.com",
             password="pw",
@@ -380,12 +382,13 @@ class GuestInvoiceIdValidationTests(TestCase):
             user=user,
             amount=12345,
             status=Invoice.Status.PENDING,
+            stripe_invoice_number="ABCDEFGH-0001",
         )
 
         url = reverse("payment")
-        resp = self.client.post(url, data={"invoice_id": str(inv.id)})
+        resp = self.client.post(url, data={"invoice_id": inv.stripe_invoice_number})
         self.assertEqual(resp.status_code, 302)
-        self.assertEqual(resp["Location"], reverse("create_checkout_session", args=[inv.id]))
+        self.assertEqual(resp["Location"], reverse("create_checkout_session", args=[inv.stripe_invoice_number]))
 
 class InvoiceCreationTests(TestCase):
     """Test invoice creation functionality and error messages"""
@@ -435,8 +438,6 @@ class InvoiceCreationTests(TestCase):
         """
         Test that invoice creation fails when email format is invalid
         """
-        print("\nTEST: Invoice creation with invalid email format (notanemail)")
-        print("EXPECTED: Request fails with error message about user not existing, success=False, status=200")
         
         post_data = {
             "email": "notanemail",  # Invalid email format
@@ -453,30 +454,24 @@ class InvoiceCreationTests(TestCase):
         actual_error = response_data.get("error")
         actual_success = response_data.get("success")
         actual_status = response.status_code
-        print(f"ACTUAL: status={actual_status}, success={actual_success}, error='{actual_error}'")
-        
+         
         # Check response status
         self.assertEqual(response.status_code, 200)
-        print("Assertion 1 PASS: response.status_code == 200")
         
         # Check that request was not successful
         self.assertFalse(response_data.get("success"))
-        print("Assertion 2 PASS: response success == False")
         
         # Check exact error message
         self.assertEqual(
             actual_error,
             "User does not exist within the database, invoice has not been created."
         )
-        print("Assertion 3 PASS: error message matches expected")
-
+        
     def test_create_invoice_with_nonexistent_email(self):
         """
         Test that invoice creation fails when email doesn't exist in database
         """
-        print("\nTEST: Invoice creation with nonexistent email (nonexistent@example.com)")
-        print("EXPECTED: Request fails with error message about user not existing, success=False, status=200")
-        
+         
         post_data = {
             "email": "nonexistent@example.com",
             "issue_date": "2026-03-01",
@@ -492,29 +487,23 @@ class InvoiceCreationTests(TestCase):
         actual_error = response_data.get("error")
         actual_success = response_data.get("success")
         actual_status = response.status_code
-        print(f"ACTUAL: status={actual_status}, success={actual_success}, error='{actual_error}'")
         
         # Check response status
         self.assertEqual(response.status_code, 200)
-        print("Assertion 1 PASS: response.status_code == 200")
         
         # Check that request was not successful
         self.assertFalse(response_data.get("success"))
-        print("Assertion 2 PASS: response success == False")
         
         # Check exact error message
         self.assertEqual(
             actual_error,
             "User does not exist within the database, invoice has not been created."
         )
-        print("Assertion 3 PASS: error message matches expected")
-
+        
     def test_create_invoice_with_invalid_due_date(self):
         """
         Test that invoice creation fails when due date is before issue date
         """
-        print("\nTEST: Invoice creation with invalid due date (due_date before issue_date)")
-        print("EXPECTED: Request fails with error about invalid due date, success=False, status=200")
         
         post_data = {
             "email": "client@example.com",
@@ -531,29 +520,23 @@ class InvoiceCreationTests(TestCase):
         actual_error = response_data.get("error")
         actual_success = response_data.get("success")
         actual_status = response.status_code
-        print(f"ACTUAL: status={actual_status}, success={actual_success}, error='{actual_error}'")
         
         # Check response status
         self.assertEqual(response.status_code, 200)
-        print("Assertion 1 PASS: response.status_code == 200")
         
         # Check that request was not successful
         self.assertFalse(response_data.get("success"))
-        print("Assertion 2 PASS: response success == False")
         
         # Check exact error message
         self.assertEqual(
             actual_error,
             "Invalid due date, please set due date to be after the issue date."
         )
-        print("Assertion 3 PASS: error message matches expected")
-
+        
     def test_create_invoice_with_negative_price(self):
         """
         Test that invoice creation fails when line item has a negative price
         """
-        print("\nTEST: Invoice creation with negative unit price (-50.00)")
-        print("EXPECTED: Request fails with error about negative price, success=False, status=200")
         
         post_data = {
             "email": "client@example.com",
@@ -570,28 +553,25 @@ class InvoiceCreationTests(TestCase):
         actual_error = response_data.get("error")
         actual_success = response_data.get("success")
         actual_status = response.status_code
-        print(f"ACTUAL: status={actual_status}, success={actual_success}, error='{actual_error}'")
         
         # Check response status
         self.assertEqual(response.status_code, 200)
-        print("Assertion 1 PASS: response.status_code == 200")
         
         # Check that request was not successful
         self.assertFalse(response_data.get("success"))
-        print("Assertion 2 PASS: response success == False")
         
         # Check exact error message
         self.assertEqual(
             actual_error,
             "Unit price must be greater than $0 and less than $99,999."
         )
-        print("Assertion 3 PASS: error message matches expected")
 
 
 def _make_fake_stripe_invoice():
     """Return a minimal MagicMock that satisfies the create_invoice view."""
     fake = MagicMock()
     fake.id = "inv_test"
+    fake.number = "ABCDEFGH-0001"
     fake.amount_due = 10000  # $100 in cents
     fake.hosted_invoice_url = "https://stripe.com/inv_test"
     return fake
@@ -758,3 +738,1640 @@ class PendingInvoiceValidationTests(_InvoiceTestBase):
         data = json.loads(response.content)
         self.assertTrue(data["success"])
         self.assertEqual(Invoice.objects.count(), 2)
+
+
+class StripePaymentFlowTests(TestCase):
+    """Test the actual Stripe payment processing flow"""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="client@example.com",
+            password="testpass",
+            first_name="Test",
+            last_name="Client",
+            is_active=True,
+        )
+        self.invoice = Invoice.objects.create(
+            user=self.user,
+            amount=50000,  # $500
+            status=Invoice.Status.PENDING,
+            hosted_invoice_url="https://stripe.com/test_invoice"
+        )
+
+    ############################### Order Summary Display Tests ###############################
+
+    # Test: Payment page for logged-in users shows order summary
+    def test_payment_page_for_logged_in_users_shows_order_summary(self):
+        """Payment page for logged-in users shows order summary"""
+        
+        self.client.force_login(self.user)
+        response = self.client.get(reverse('client_invoices'))
+
+        # Should show current invoice with correct amount.
+        expected_display_amount = f"${self.invoice.amount / 100:.2f}"  # Convert cents to dollars.
+        
+        self.assertEqual(response.status_code, 200) # Assert success code.
+        
+        # Ensure the invoice details are displayed correctly for a pending order.
+        self.assertContains(response, expected_display_amount)
+        self.assertContains(response, 'Amount Due')
+        self.assertContains(response, 'Pay Now')
+        self.assertContains(response, 'Status: Pending')
+        
+    # Test: Payment page shows correct amount regardless of invoice amount
+    def test_payment_page_shows_correct_amount_for_different_invoice_amounts(self):
+        """Payment page shows correct amount regardless of invoice amount"""
+        # Test with different amounts to ensure the display is dynamic.
+        test_amounts = [10000, 25000, 75000, 100000]  # $100, $250, $750, $1000.
+
+        for amount in test_amounts:
+            with self.subTest(amount=amount):
+                # Update the invoice amount.
+                self.invoice.amount = amount
+                self.invoice.save()
+
+                self.client.force_login(self.user)
+                response = self.client.get(reverse('client_invoices'))
+                self.assertEqual(response.status_code, 200)
+
+                # Should show the correct amount for this invoice.
+                expected_display_amount = f"${amount / 100:.2f}"
+
+                # Ensure the invoice details are the proper displayed values.
+                self.assertContains(response, expected_display_amount)
+                self.assertContains(response, 'Amount Due')
+                self.assertContains(response, 'Pay Now')
+                
+    ############################### Checkout Session Tests ###############################
+
+    # Test: Checkout session creation requires valid invoice
+    def test_checkout_session_creation_requires_valid_invoice(self):
+        """Checkout session creation requires valid invoice"""
+        
+        # Test with invalid invoice ID.
+        response = self.client.get(reverse('create_checkout_session', args=[99999]))
+        self.assertEqual(response.status_code, 302) # Error code that is sent by Django redirect().
+        self.assertRedirects(response, reverse('payment'))    
+
+    ############################### Stripe Customer Management Tests ###############################
+
+    # Test: User's Stripe customer ID is created/reused
+    @patch("finances.views.stripe")
+    def test_user_stripe_customer_id_created_and_reused(self, mock_stripe):
+        """User's Stripe customer ID is created/reused"""
+        
+        # Mock Stripe customer creation.
+        mock_customer = MagicMock()
+        mock_customer.id = "cus_test123"
+        mock_stripe.Customer.create.return_value = mock_customer
+
+        # First call should create customer.
+        customer_id = get_or_create_stripe_customer_id(self.user)
+        self.assertEqual(customer_id, "cus_test123")
+        mock_stripe.Customer.create.assert_called_once()
+        
+        # Refresh user from DB.
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.provider_customer_id, "cus_test123")
+
+        # Second call should reuse existing ID.
+        mock_stripe.Customer.create.reset_mock()
+        customer_id2 = get_or_create_stripe_customer_id(self.user)
+        self.assertEqual(customer_id2, "cus_test123")
+        mock_stripe.Customer.create.assert_not_called()  # Should not create again.
+        
+    ############################### Payment Processing Tests ###############################
+
+    # Test: Successful payment updates invoice status to PAID
+    @patch("finances.views.stripe")
+    def test_successful_payment_updates_invoice_status_to_paid(self, mock_stripe):
+        """Successful payment updates invoice status to PAID"""
+         
+        # Mock Stripe checkout session for testing uses.
+        mock_session = MagicMock()
+        mock_session.url = "https://checkout.stripe.com/test"
+        mock_stripe.checkout.Session.create.return_value = mock_session
+
+        # Create checkout session.
+        checkout_response = self.client.get(reverse('create_checkout_session', args=[self.invoice.id]))
+        self.assertEqual(checkout_response.status_code, 302)
+
+        # Simulate webhook for successful payment.
+        webhook_data = {
+            "id": "evt_test",
+            "type": "invoice.paid",
+            "data": {
+                "object": {
+                    "id": "inv_test",
+                    "metadata": {"invoice_id": str(self.invoice.id)},
+                    "status": "paid"
+                }
+            }
+        }
+
+        # Mock webhook signature verification.
+        # I didn't even know you could do this, this was a very cool find.
+        with patch("finances.views.stripe.Webhook.construct_event", return_value=webhook_data), \
+             patch("finances.views.settings.STRIPE_WEBHOOK_SECRET", "test_secret"):
+            webhook_response = self.client.post(
+                reverse('stripe_webhook'),
+                data=json.dumps(webhook_data),
+                content_type='application/json',
+                HTTP_STRIPE_SIGNATURE='test_sig'
+            )
+            self.assertEqual(webhook_response.status_code, 200)
+
+        # Check invoice was updated.
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, Invoice.Status.PAID)
+        self.assertTrue(self.invoice.paid)
+        
+    # Test: Payment creates Payment record in DB
+    @patch("finances.views.stripe")
+    def test_payment_creates_payment_record_in_db(self, mock_stripe):
+        """Payment creates Payment record in DB"""
+        
+        # Simulate webhook for successful payment.
+        webhook_data = {
+            "id": "evt_test",
+            "type": "invoice.paid", 
+            "data": {
+                "object": {
+                    "id": "inv_test",
+                    "amount_due": 50000,
+                    "metadata": {"invoice_id": str(self.invoice.id)},
+                    "status": "paid"
+                }
+            }
+        }
+
+        # Count payments before.
+        initial_payment_count = Payment.objects.count()
+
+        # Mock webhook signature verification.
+        with patch("finances.views.stripe.Webhook.construct_event", return_value=webhook_data), \
+             patch("finances.views.settings.STRIPE_WEBHOOK_SECRET", "test_secret"):
+            response = self.client.post(
+                reverse('stripe_webhook'),
+                data=json.dumps(webhook_data),
+                content_type='application/json',
+                HTTP_STRIPE_SIGNATURE='test_sig'
+            )
+            self.assertEqual(response.status_code, 200)
+
+        # Check that Payment record was created.
+        final_payment_count = Payment.objects.count()
+        self.assertEqual(final_payment_count, initial_payment_count + 1)
+        
+        payment = Payment.objects.latest('id')
+        self.assertEqual(payment.user, self.user)
+        self.assertEqual(payment.amount, 50000)
+        self.assertEqual(payment.status, Payment.Status.SUCCESS)
+        
+# Admin is able to change client balances by voiding pending invoice and creating a new one
+class AdminChangeClientBalanceTest(TestCase):
+    # Return a minimal MagicMock that satisfies the create_invoice view
+    @staticmethod
+    def mock_invoice(invoice_id="inv_test", amount_due=10000, hosted_url="https://stripe.com/invoice/test"):
+        mock_invoice = MagicMock()
+        mock_invoice.id = invoice_id
+        mock_invoice.number = f"ABCDEFGH-{invoice_id.split('_')[-1]}"
+        mock_invoice.amount_due = amount_due
+        mock_invoice.hosted_invoice_url = hosted_url
+        # Add the .get() method that the admin_stripe_invoice_detail expects
+        mock_invoice.get = MagicMock(side_effect=lambda key: {
+            "id": mock_invoice.id,
+            "number": mock_invoice.number,
+            "amount_due": mock_invoice.amount_due,
+            "hosted_invoice_url": mock_invoice.hosted_invoice_url,
+            "status": "open",
+            "currency": "usd",
+            "customer": "cus_test123",
+        }.get(key))
+        return mock_invoice
+
+    def setUp(self):
+        self.client = Client()
+        self.create_invoice_url = reverse("admin_create_invoices")
+        
+        # Create admin user with proper permissions
+        self.admin_user = User.objects.create_user(
+            email="admin@example.com",
+            password="adminpass",
+            first_name="Admin",
+            last_name="User",
+            is_active=True,
+            is_staff=True,
+        )
+        
+        # Create regular user (client)
+        self.client_user = User.objects.create_user(
+            email="client@example.com",
+            password="clientpass",
+            first_name="Client",
+            last_name="User",
+            provider_customer_id="cus_test123",
+            is_active=True
+        )
+        
+        # Login as admin
+        self.client.login(email="admin@example.com", password="adminpass")
+    
+    # Helper to create a test invoice
+    def create_test_invoice(self, status="PENDING", amount=10000, stripe_invoice_id=None):
+        if not stripe_invoice_id:
+            stripe_invoice_id = f"inv_test_{str(uuid.uuid4())[:8]}"
+        
+        invoice = Invoice.objects.create(
+            user=self.client_user,
+            amount=amount,
+            stripe_invoice_id=stripe_invoice_id,
+            hosted_invoice_url="https://stripe.com/invoice/test",
+            status=status,
+        )
+        
+        if status == "PAID":
+            invoice.paid = True
+            invoice.save()
+        
+        return invoice
+
+    # Test successfully voiding a pending invoice
+    def test_void_pending_invoice_success(self):
+        invoice = self.create_test_invoice(status="PENDING")
+        
+        with patch("finances.views.stripe") as mock_stripe:
+            mock_stripe.Invoice.void_invoice.return_value = MagicMock()
+            
+            url = f'/api/admin/stripe/invoice/{invoice.stripe_invoice_id}/void/'
+            response = self.client.post(url)
+            
+            self.assertEqual(response.status_code, 200)
+            response_data = json.loads(response.content)
+            self.assertEqual(response_data["status"], "voided")
+            
+            invoice.refresh_from_db()
+            self.assertEqual(invoice.status, Invoice.Status.VOIDED)
+            self.assertFalse(invoice.paid)
+            
+            mock_stripe.Invoice.void_invoice.assert_called_once_with(
+                invoice.stripe_invoice_id
+            )
+
+    # Test attempting to void an already voided invoice
+    def test_void_already_voided_invoice(self):    
+        invoice = self.create_test_invoice(status="VOIDED")
+        
+        url = f'/api/admin/stripe/invoice/{invoice.stripe_invoice_id}/void/'
+        response = self.client.post(url)
+        
+        self.assertEqual(response.status_code, 400)
+        response_data = json.loads(response.content)
+        self.assertEqual(response_data["error"], "Invoice is already voided")
+
+    # Test attempting to void a paid invoice
+    def test_void_paid_invoice(self):
+        invoice = self.create_test_invoice(status="PAID")
+        
+        url = f'/api/admin/stripe/invoice/{invoice.stripe_invoice_id}/void/'
+        response = self.client.post(url)
+        
+        self.assertEqual(response.status_code, 400)
+        response_data = json.loads(response.content)
+        self.assertEqual(response_data["error"], "Cannot void a paid invoice")
+
+    # Test creating a new invoice after voiding the old one
+    @patch("finances.views.stripe")
+    def test_create_new_invoice_after_void(self, mock_stripe):
+        
+        # Create initial invoice
+        invoice = self.create_test_invoice(status="PENDING")
+        
+        # Mock void operation
+        mock_stripe.Invoice.void_invoice.return_value = MagicMock()
+        
+        void_url = f'/api/admin/stripe/invoice/{invoice.stripe_invoice_id}/void/'
+        void_response = self.client.post(void_url)
+        self.assertEqual(void_response.status_code, 200)
+        
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.status, Invoice.Status.VOIDED)
+        
+        # Create mock invoice using the helper method
+        mock_invoice = self.mock_invoice(
+            invoice_id="inv_test_456",
+            amount_due=15000,
+            hosted_url="https://stripe.com/invoice/test2"
+        )
+        
+        mock_stripe.Invoice.create.return_value = mock_invoice
+        mock_stripe.Invoice.finalize_invoice.return_value = mock_invoice
+        mock_stripe.Customer.create.return_value = MagicMock(id="cus_test123")
+        mock_stripe.InvoiceItem.create.return_value = MagicMock()
+        
+        post_data = {
+            "email": self.client_user.email,
+            "issue_date": "2026-04-10",
+            "due_date": "2026-05-10",
+            "customer_notes": "Updated invoice after void",
+            "description[]": ["Legal Consultation", "Document Review"],
+            "quantity[]": ["1", "2"],
+            "unit_price[]": ["100.00", "50.00"]
+        }
+        
+        response = self.client.post(self.create_invoice_url, post_data)
+        
+        self.assertEqual(response.status_code, 200)
+        response_data = json.loads(response.content)
+        self.assertTrue(response_data["success"])
+        
+        new_invoices = Invoice.objects.filter(user=self.client_user, status="PENDING")
+        self.assertEqual(new_invoices.count(), 1)
+        
+        new_invoice = new_invoices.first()
+        self.assertNotEqual(new_invoice.id, invoice.id)
+
+    # Test that creating a new invoice after void doesn't conflict with pending
+    @patch("finances.views.stripe")
+    def test_create_invoice_after_void_prevents_pending_conflict(self, mock_stripe):
+        
+        # Create a pending invoice
+        pending_invoice = self.create_test_invoice(status="PENDING")
+        
+        post_data = {
+            "email": self.client_user.email,
+            "issue_date": "2026-04-10",
+            "due_date": "2026-05-10",
+            "customer_notes": "Should be blocked",
+            "description[]": ["Service"],
+            "quantity[]": ["1"],
+            "unit_price[]": ["100.00"]
+        }
+        
+        # First attempt - should be blocked
+        response = self.client.post(self.create_invoice_url, post_data)
+        
+        self.assertEqual(response.status_code, 200)
+        response_data = json.loads(response.content)
+        self.assertFalse(response_data["success"])
+        self.assertIn("already has a pending invoice", response_data["error"])
+        
+        # Mock void operation
+        mock_stripe.Invoice.void_invoice.return_value = MagicMock()
+        
+        void_url = f'/api/admin/stripe/invoice/{pending_invoice.stripe_invoice_id}/void/'
+        void_response = self.client.post(void_url)
+        self.assertEqual(void_response.status_code, 200)
+        
+        pending_invoice.refresh_from_db()
+        self.assertEqual(pending_invoice.status, Invoice.Status.VOIDED)
+        
+        # Create mock invoice using the helper method
+        mock_invoice = self.mock_invoice(
+            invoice_id="inv_new_789",
+            amount_due=10000,
+            hosted_url="https://stripe.com/invoice/new"
+        )
+        
+        mock_stripe.Invoice.create.return_value = mock_invoice
+        mock_stripe.Invoice.finalize_invoice.return_value = mock_invoice
+        mock_stripe.Customer.create.return_value = MagicMock(id="cus_test123")
+        mock_stripe.InvoiceItem.create.return_value = MagicMock()
+        
+        # Second attempt - should succeed
+        response = self.client.post(self.create_invoice_url, post_data)
+        
+        self.assertEqual(response.status_code, 200)
+        response_data = json.loads(response.content)
+        self.assertTrue(response_data["success"])
+
+    # Test the complete flow: create -> void -> create new invoice
+    @patch("finances.views.stripe")
+    def test_complete_void_and_recreate_flow(self, mock_stripe):
+        # Step 1: Create initial invoice
+        initial_post_data = {
+            "email": self.client_user.email,
+            "issue_date": "2026-04-10",
+            "due_date": "2026-05-10",
+            "customer_notes": "Initial invoice",
+            "description[]": ["Service A", "Service B"],
+            "quantity[]": ["1", "2"],
+            "unit_price[]": ["100.00", "75.00"]
+        }
+        
+        # Create mock invoice using the helper method
+        mock_initial_invoice = self.mock_invoice(
+            invoice_id="inv_initial_123",
+            amount_due=25000,
+            hosted_url="https://stripe.com/invoice/initial"
+        )
+        
+        mock_stripe.Invoice.create.return_value = mock_initial_invoice
+        mock_stripe.Invoice.finalize_invoice.return_value = mock_initial_invoice
+        mock_stripe.Customer.create.return_value = MagicMock(id="cus_test123")
+        mock_stripe.InvoiceItem.create.return_value = MagicMock()
+        
+        response = self.client.post(self.create_invoice_url, initial_post_data)
+        
+        self.assertEqual(response.status_code, 200)
+        response_data = json.loads(response.content)
+        self.assertTrue(response_data["success"])
+        
+        initial_invoice = Invoice.objects.get(stripe_invoice_id="inv_initial_123")
+        self.assertEqual(initial_invoice.status, Invoice.Status.PENDING)
+        self.assertEqual(initial_invoice.amount, 25000)
+        
+        # Step 2: Void the initial invoice
+        mock_stripe.Invoice.void_invoice.return_value = MagicMock()
+        
+        void_url = f'/api/admin/stripe/invoice/{initial_invoice.stripe_invoice_id}/void/'
+        void_response = self.client.post(void_url)
+        self.assertEqual(void_response.status_code, 200)
+        
+        initial_invoice.refresh_from_db()
+        self.assertEqual(initial_invoice.status, Invoice.Status.VOIDED)
+        
+        # Step 3: Create updated invoice
+        updated_post_data = {
+            "email": self.client_user.email,
+            "issue_date": "2026-04-15",
+            "due_date": "2026-05-15",
+            "customer_notes": "Updated invoice after void",
+            "description[]": ["Service A (Revised)", "Service B", "Service C"],
+            "quantity[]": ["1", "2", "1"],
+            "unit_price[]": ["100.00", "75.00", "50.00"]
+        }
+        
+        # Create mock invoice using the helper method
+        mock_updated_invoice = self.mock_invoice(
+            invoice_id="inv_updated_456",
+            amount_due=30000,
+            hosted_url="https://stripe.com/invoice/updated"
+        )
+        
+        mock_stripe.Invoice.create.return_value = mock_updated_invoice
+        mock_stripe.Invoice.finalize_invoice.return_value = mock_updated_invoice
+        
+        response = self.client.post(self.create_invoice_url, updated_post_data)
+        
+        self.assertEqual(response.status_code, 200)
+        response_data = json.loads(response.content)
+        self.assertTrue(response_data["success"])
+        
+        updated_invoice = Invoice.objects.get(stripe_invoice_id="inv_updated_456")
+        self.assertEqual(updated_invoice.status, Invoice.Status.PENDING)
+        self.assertEqual(updated_invoice.amount, 30000)
+        
+        # Verify both invoices exist with correct statuses
+        all_invoices = Invoice.objects.filter(user=self.client_user).order_by('created_at')
+        self.assertEqual(all_invoices.count(), 2)
+        self.assertEqual(all_invoices[0].status, Invoice.Status.VOIDED)
+        self.assertEqual(all_invoices[1].status, Invoice.Status.PENDING)
+
+class ClientInvoiceTests(TestCase):
+    
+    def setUp(self):
+        self.client = Client()
+        
+        # Create a regular user (client)
+        self.client_user = User.objects.create_user(
+            email="client@example.com",
+            password="clientpass123",
+            first_name="Test",
+            last_name="Client",
+            is_active=True
+        )
+        
+        # Login as the client
+        self.client.login(email="client@example.com", password="clientpass123")
+        
+        # Get URL names (update these to match your actual URLs)
+        self.invoices_url = reverse('client_invoices')
+        self.payment_url = reverse('payment')  # Your payment page URL
+        self.checkout_url_name = 'create_checkout_session'
+        self.stripe_webhook_url = reverse('stripe_webhook')
+        
+    # Helper to create an invoice
+    def create_invoice(self, user, status="PENDING", amount=50000, created_days_ago=0, paid=False):
+        
+        created_at = timezone.now() - timedelta(days=created_days_ago)
+        
+        invoice = Invoice.objects.create(
+            user=user,
+            amount=amount,
+            status=status,
+            paid=paid or (status == "PAID"),
+            stripe_invoice_id=f"inv_test_{status}_{amount}_{created_days_ago}",
+            stripe_invoice_number=f"ABCDEFGH-0001",
+            hosted_invoice_url=f"https://stripe.com/invoice/test_{status}_{amount}",
+            created_at=created_at
+        )
+        return invoice
+    
+    # Test that the correct pending invoice amount is displayed
+    def test_pending_invoice_shows_correct_amount(self):
+        
+        # Create a pending invoice for $500.00
+        pending_invoice = self.create_invoice(
+            user=self.client_user,
+            status="PENDING",
+            amount=50000,
+            paid=False
+        )
+        
+        response = self.client.get(self.invoices_url)
+        
+        self.assertEqual(response.status_code, 200)
+        
+        # Check current invoice is in context
+        current_invoice = response.context.get('current_invoice')
+        self.assertIsNotNone(current_invoice)
+        self.assertEqual(current_invoice.id, pending_invoice.id)
+        
+        # Verify amount conversion from cents to dollars
+        self.assertEqual(current_invoice.display_amount, 500.00)
+        
+        # Verify HTML contains the correct amount
+        self.assertContains(response, "$500.00")
+        self.assertContains(response, "Amount Due: $500.00")
+        
+        # Verify Pay Now button exists
+        self.assertContains(response, "Pay Now")
+        self.assertContains(response, pending_invoice.hosted_invoice_url)
+    
+    # Test when no pending invoice exists (shows past invoices only)
+    def test_no_pending_invoice_shows_empty_state(self):
+        
+        # Create only paid invoices
+        self.create_invoice(user=self.client_user, status="PAID", amount=50000, paid=True)
+        
+        response = self.client.get(self.invoices_url)
+        
+        current_invoice = response.context.get('current_invoice')
+        self.assertIsNone(current_invoice)
+        
+        # The current invoice section should be empty (no Pay Now button)
+        self.assertNotContains(response, "Pay Now")
+        
+        # But past invoices should still show
+        self.assertContains(response, "Past Invoices")
+        self.assertContains(response, "$500.00")
+        self.assertContains(response, "Status: Paid")
+
+    # Test that clicking Pay Now redirects to Stripe checkout
+    @patch("finances.views.stripe")
+    def test_pay_now_redirects_to_stripe_checkout(self, mock_stripe):
+        
+        # Create pending invoice
+        invoice = self.create_invoice(
+            user=self.client_user,
+            status="PENDING",
+            amount=50000,
+            paid=False
+        )
+        
+        # Mock Stripe checkout session
+        mock_session = MagicMock()
+        mock_session.url = "https://checkout.stripe.com/session_123abc"
+        mock_stripe.checkout.Session.create.return_value = mock_session
+        
+        # Get checkout session URL using the customer-facing invoice number
+        checkout_url = reverse(self.checkout_url_name, args=[invoice.stripe_invoice_number])
+        response = self.client.get(checkout_url)
+        
+        # Should redirect to Stripe
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, "https://checkout.stripe.com/session_123abc")
+        
+        # Verify Stripe was called with correct parameters
+        mock_stripe.checkout.Session.create.assert_called_once()
+        call_kwargs = mock_stripe.checkout.Session.create.call_args[1]
+        
+        # Check invoice amount (should be in cents)
+        line_item = call_kwargs['line_items'][0]
+        self.assertEqual(line_item['price_data']['unit_amount'], 50000)
+        
+        # Check metadata contains the customer-facing invoice number
+        self.assertEqual(call_kwargs['metadata']['invoice_id'], invoice.stripe_invoice_number)
+
+    # Test that database reflects payment: invoice marked PAID
+    @patch("finances.views.stripe")
+    def test_database_updates_after_successful_payment(self, mock_stripe):
+        
+        # Create pending invoice
+        invoice = self.create_invoice(
+            user=self.client_user,
+            status="PENDING",
+            amount=50000,
+            paid=False
+        )
+        
+        # Verify initial state
+        self.assertEqual(invoice.status, "PENDING")
+        self.assertFalse(invoice.paid)
+        
+        # Simulate Stripe webhook for successful payment
+        webhook_data = {
+            "id": "evt_test_123",
+            "type": "invoice.paid",
+            "data": {
+                "object": {
+                    "id": "inv_stripe_123",
+                    "amount_due": 50000,
+                    "metadata": {"invoice_id": str(invoice.id)},
+                    "status": "paid"
+                }
+            }
+        }
+        
+        # Mock webhook verification
+        with patch("finances.views.stripe.Webhook.construct_event", return_value=webhook_data), \
+             patch("finances.views.settings.STRIPE_WEBHOOK_SECRET", "test_secret"):
+            response = self.client.post(
+                self.stripe_webhook_url,
+                data=json.dumps(webhook_data),
+                content_type='application/json',
+                HTTP_STRIPE_SIGNATURE='test_sig'
+            )
+            self.assertEqual(response.status_code, 200)
+        
+        # Refresh invoice from database
+        invoice.refresh_from_db()
+        
+        # Verify invoice is now marked as paid
+        self.assertEqual(invoice.status, "PAID")
+        self.assertTrue(invoice.paid)
+        
+        # Verify payment record was created
+        payment = Payment.objects.filter(user=self.client_user).first()
+        self.assertIsNotNone(payment)
+        self.assertEqual(payment.amount, 50000)
+        self.assertEqual(payment.status, "SUCCESS")
+    
+    # Test that invoice page shows updated status after payment
+    @patch("finances.views.stripe")
+    def test_invoice_page_updates_after_payment(self, mock_stripe):
+        
+        # Create pending invoice
+        invoice = self.create_invoice(
+            user=self.client_user,
+            status="PENDING",
+            amount=50000,
+            paid=False
+        )
+        
+        # Step 1: Before payment - invoice shows as current
+        response_before = self.client.get(self.invoices_url)
+        current_invoice_before = response_before.context.get('current_invoice')
+        self.assertIsNotNone(current_invoice_before)
+        self.assertContains(response_before, "Pay Now")
+        
+        # Step 2: Simulate successful payment via webhook
+        webhook_data = {
+            "id": "evt_test_789",
+            "type": "invoice.paid",
+            "data": {
+                "object": {
+                    "id": "inv_stripe_789",
+                    "amount_due": 50000,
+                    "metadata": {"invoice_id": str(invoice.id)},
+                    "status": "paid"
+                }
+            }
+        }
+        
+        with patch("finances.views.stripe.Webhook.construct_event", return_value=webhook_data), \
+             patch("finances.views.settings.STRIPE_WEBHOOK_SECRET", "test_secret"):
+            response = self.client.post(
+                self.stripe_webhook_url,
+                data=json.dumps(webhook_data),
+                content_type='application/json',
+                HTTP_STRIPE_SIGNATURE='test_sig'
+            )
+            self.assertEqual(response.status_code, 200)
+        
+        # Step 3: After payment invoice should not be current anymore
+        response_after = self.client.get(self.invoices_url)
+        
+        # Current invoice should be None (no pending invoices)
+        current_invoice_after = response_after.context.get('current_invoice')
+        self.assertIsNone(current_invoice_after)
+        
+        # No Pay Now button
+        self.assertNotContains(response_after, "Pay Now")
+        
+        # Invoice should appear in past invoices with Paid status
+        self.assertContains(response_after, "Status: Paid")
+        self.assertContains(response_after, "$500.00")
+    
+    # Test the entire flow
+    @patch("finances.views.stripe")
+    def test_complete_payment_flow(self, mock_stripe):
+        
+        # Step 1: Create pending invoice
+        invoice = self.create_invoice(
+            user=self.client_user,
+            status="PENDING",
+            amount=75000,
+            paid=False
+        )
+        
+        # Step 2: Client views invoice page
+        response_view = self.client.get(self.invoices_url)
+        self.assertEqual(response_view.status_code, 200)
+        current = response_view.context.get('current_invoice')
+        self.assertEqual(current.amount, 75000)
+        
+        # Step 3: Client clicks Pay Now, gets redirected to Stripe
+        mock_session = MagicMock()
+        mock_session.url = "https://checkout.stripe.com/session_complete"
+        mock_stripe.checkout.Session.create.return_value = mock_session
+        
+        checkout_url = reverse(self.checkout_url_name, args=[invoice.id])
+        response_checkout = self.client.get(checkout_url)
+        self.assertEqual(response_checkout.status_code, 302)
+        
+        # Step 4: Stripe sends webhook for successful payment
+        webhook_data = {
+            "id": "evt_complete_flow",
+            "type": "invoice.paid",
+            "data": {
+                "object": {
+                    "id": "inv_complete",
+                    "amount_due": 75000,
+                    "metadata": {"invoice_id": str(invoice.id)},
+                    "status": "paid"
+                }
+            }
+        }
+        
+        with patch("finances.views.stripe.Webhook.construct_event", return_value=webhook_data), \
+             patch("finances.views.settings.STRIPE_WEBHOOK_SECRET", "test_secret"):
+            response_webhook = self.client.post(
+                self.stripe_webhook_url,
+                data=json.dumps(webhook_data),
+                content_type='application/json',
+                HTTP_STRIPE_SIGNATURE='test_sig'
+            )
+            self.assertEqual(response_webhook.status_code, 200)
+        
+        # Step 5: Verify database was updated
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.status, "PAID")
+        self.assertTrue(invoice.paid)
+        
+        # Step 6: Verify payment record created
+        payment = Payment.objects.filter(user=self.client_user).first()
+        self.assertIsNotNone(payment)
+        self.assertEqual(payment.status, "SUCCESS")
+        
+        # Step 7: Client views updated invoice page
+        response_final = self.client.get(self.invoices_url)
+        
+        # No current pending invoice
+        current_final = response_final.context.get('current_invoice')
+        self.assertIsNone(current_final)
+        
+        # Invoice in past invoices with Paid status
+        self.assertContains(response_final, "Status: Paid")
+
+
+class InvoiceModelTest(TestCase):
+    """
+    Test cases for Invoice model functionality, including:
+    - Invoice creation with correct defaults
+    - Invoice status choices
+    - client_name property behavior
+    """
+
+    def setUp(self):
+        """Set up test data for Invoice model tests."""
+        self.user_with_name = User.objects.create_user(
+            email="named@example.com",
+            password="testpass123",
+            first_name="John",
+            last_name="Doe",
+            is_active=True,
+        )
+        self.user_without_name = User.objects.create_user(
+            email="noname@example.com",
+            password="testpass123",
+            is_active=True,
+        )
+        self.user_partial_name = User.objects.create_user(
+            email="partial@example.com",
+            password="testpass123",
+            first_name="Jane",
+            is_active=True,
+        )
+
+    def test_invoice_creation_with_defaults(self):
+        """Test that an invoice is created with correct default values."""
+        amount = 10000  # $100.00 in cents
+        invoice = Invoice.objects.create(
+            user=self.user_with_name,
+            amount=amount,
+        )
+        
+        self.assertIsNotNone(invoice.id)
+        self.assertEqual(invoice.user, self.user_with_name)
+        self.assertEqual(invoice.amount, amount)
+        self.assertEqual(invoice.status, Invoice.Status.PENDING)
+        self.assertFalse(invoice.paid)
+        self.assertIsNone(invoice.stripe_invoice_id)
+        self.assertIsNone(invoice.hosted_invoice_url)
+
+    def test_invoice_created_at_auto_set(self):
+        """Test that created_at is automatically set on invoice creation."""
+        before_creation = timezone.now()
+        invoice = Invoice.objects.create(
+            user=self.user_with_name,
+            amount=5000,
+        )
+        after_creation = timezone.now()
+        
+        self.assertIsNotNone(invoice.created_at)
+        self.assertGreaterEqual(invoice.created_at, before_creation)
+        self.assertLessEqual(invoice.created_at, after_creation)
+
+    def test_invoice_default_status_is_pending(self):
+        """Test that the default status for a new invoice is PENDING."""
+        invoice = Invoice.objects.create(
+            user=self.user_with_name,
+            amount=10000,
+        )
+        
+        self.assertEqual(invoice.status, Invoice.Status.PENDING)
+
+    def test_invoice_default_paid_is_false(self):
+        """Test that the default paid flag is False."""
+        invoice = Invoice.objects.create(
+            user=self.user_with_name,
+            amount=10000,
+        )
+        
+        self.assertFalse(invoice.paid)
+
+    def test_invoice_status_choice_pending(self):
+        """Test that PENDING is a valid status choice."""
+        invoice = Invoice.objects.create(
+            user=self.user_with_name,
+            amount=10000,
+            status=Invoice.Status.PENDING,
+        )
+        invoice.refresh_from_db()
+        
+        self.assertEqual(invoice.status, Invoice.Status.PENDING)
+        self.assertEqual(invoice.status, "PENDING")
+
+    def test_invoice_status_choice_paid(self):
+        """Test that PAID is a valid status choice."""
+        invoice = Invoice.objects.create(
+            user=self.user_with_name,
+            amount=10000,
+            status=Invoice.Status.PAID,
+        )
+        invoice.refresh_from_db()
+        
+        self.assertEqual(invoice.status, Invoice.Status.PAID)
+        self.assertEqual(invoice.status, "PAID")
+
+    def test_invoice_status_choice_payment_failed(self):
+        """Test that PAYMENT_FAILED is a valid status choice."""
+        invoice = Invoice.objects.create(
+            user=self.user_with_name,
+            amount=10000,
+            status=Invoice.Status.PAYMENT_FAILED,
+        )
+        invoice.refresh_from_db()
+        
+        self.assertEqual(invoice.status, Invoice.Status.PAYMENT_FAILED)
+        self.assertEqual(invoice.status, "PAYMENT_FAILED")
+
+    def test_invoice_status_choice_voided(self):
+        """Test that VOIDED is a valid status choice."""
+        invoice = Invoice.objects.create(
+            user=self.user_with_name,
+            amount=10000,
+            status=Invoice.Status.VOIDED,
+        )
+        invoice.refresh_from_db()
+        
+        self.assertEqual(invoice.status, Invoice.Status.VOIDED)
+        self.assertEqual(invoice.status, "VOIDED")
+
+    def test_all_invoice_status_choices_are_valid(self):
+        """Test that all status choices are defined correctly."""
+        expected_statuses = ["PENDING", "PAID", "PAYMENT_FAILED", "VOIDED"]
+        actual_statuses = [choice[0] for choice in Invoice.Status.choices]
+        
+        self.assertEqual(set(actual_statuses), set(expected_statuses))
+
+    def test_invoice_status_can_be_updated(self):
+        """Test that invoice status can be changed after creation."""
+        invoice = Invoice.objects.create(
+            user=self.user_with_name,
+            amount=10000,
+            status=Invoice.Status.PENDING,
+        )
+        
+        invoice.status = Invoice.Status.PAID
+        invoice.save()
+        invoice.refresh_from_db()
+        
+        self.assertEqual(invoice.status, Invoice.Status.PAID)
+
+    def test_client_name_returns_full_name(self):
+        """Test that client_name returns full name when both first and last names exist."""
+        invoice = Invoice.objects.create(
+            user=self.user_with_name,
+            amount=10000,
+        )
+        
+        self.assertEqual(invoice.client_name, "John Doe")
+
+    def test_client_name_returns_email_when_no_name(self):
+        """Test that client_name returns email when no first or last name is set."""
+        invoice = Invoice.objects.create(
+            user=self.user_without_name,
+            amount=10000,
+        )
+        
+        self.assertEqual(invoice.client_name, "noname@example.com")
+
+    def test_client_name_with_only_first_name(self):
+        """Test that client_name includes partial name (first_name only)."""
+        invoice = Invoice.objects.create(
+            user=self.user_partial_name,
+            amount=10000,
+        )
+        
+        self.assertEqual(invoice.client_name, "Jane ")
+
+    def test_client_name_uses_both_names_when_available(self):
+        """Test that client_name uses both first and last names when available."""
+        user_full_names = [
+            ("Alice", "Johnson"),
+            ("Bob", "Smith"),
+            ("Carol", "Williams"),
+        ]
+        
+        for first, last in user_full_names:
+            user = User.objects.create_user(
+                email=f"{first.lower()}@example.com",
+                password="testpass123",
+                first_name=first,
+                last_name=last,
+            )
+            invoice = Invoice.objects.create(user=user, amount=10000)
+            self.assertEqual(invoice.client_name, f"{first} {last}")
+
+    def test_client_name_property_is_not_stored(self):
+        """Test that client_name is a computed property, not a stored field."""
+        invoice = Invoice.objects.create(
+            user=self.user_with_name,
+            amount=10000,
+        )
+        
+        # Change the user's name
+        self.user_with_name.first_name = "Jane"
+        self.user_with_name.last_name = "Smith"
+        self.user_with_name.save()
+        
+        # Property should reflect the updated name
+        self.assertEqual(invoice.client_name, "Jane Smith")
+
+    def test_invoice_str_representation(self):
+        """Test that Invoice.__str__ returns correct format."""
+        invoice = Invoice.objects.create(
+            user=self.user_with_name,
+            amount=10000,
+        )
+        
+        expected = f"Invoice #{invoice.id} - User {self.user_with_name.id} - $10000"
+        self.assertEqual(str(invoice), expected)
+
+
+class PaymentModelTest(TestCase):
+    """
+    Test cases for Payment model functionality, including:
+    - Payment creation records amount in cents
+    - Payment status choices
+    - Payment default values
+    """
+
+    def setUp(self):
+        """Set up test data for Payment model tests."""
+        self.user = User.objects.create_user(
+            email="payment@example.com",
+            password="testpass123",
+            first_name="Payment",
+            last_name="Tester",
+            is_active=True,
+        )
+
+    def test_payment_creation_records_amount_in_cents(self):
+        """Test that payment amount is stored in cents (minor units)."""
+        amount_cents = 15000  # $150.00 in cents
+        payment = Payment.objects.create(
+            user=self.user,
+            amount=amount_cents,
+            currency="USD",
+            description="Test payment",
+            status=Payment.Status.SUCCESS,
+        )
+        payment.refresh_from_db()
+        
+        self.assertEqual(payment.amount, amount_cents)
+
+    def test_payment_with_various_cent_amounts(self):
+        """Test that payments can be created with various cent amounts."""
+        test_amounts = [1, 50, 100, 1000, 10000, 100000]
+        
+        for amount in test_amounts:
+            payment = Payment.objects.create(
+                user=self.user,
+                amount=amount,
+            )
+            self.assertEqual(payment.amount, amount)
+
+    def test_payment_creation_with_defaults(self):
+        """Test that a payment is created with correct default values."""
+        payment = Payment.objects.create(
+            user=self.user,
+            amount=10000,
+        )
+        payment.refresh_from_db()
+        
+        self.assertIsNotNone(payment.id)
+        self.assertEqual(payment.user, self.user)
+        self.assertEqual(payment.amount, 10000)
+        self.assertEqual(payment.currency, "USD")
+        self.assertEqual(payment.status, Payment.Status.PENDING)
+        self.assertIsNone(payment.description)
+        self.assertIsNone(payment.paid_at)
+
+    def test_payment_currency_defaults_to_usd(self):
+        """Test that currency defaults to USD."""
+        payment = Payment.objects.create(
+            user=self.user,
+            amount=5000,
+        )
+        payment.refresh_from_db()
+        
+        self.assertEqual(payment.currency, "USD")
+
+    def test_payment_status_choice_success(self):
+        """Test that SUCCESS is a valid status choice."""
+        payment = Payment.objects.create(
+            user=self.user,
+            amount=10000,
+            status=Payment.Status.SUCCESS,
+        )
+        payment.refresh_from_db()
+        
+        self.assertEqual(payment.status, Payment.Status.SUCCESS)
+        self.assertEqual(payment.status, "SUCCESS")
+
+    def test_payment_status_choice_pending(self):
+        """Test that PENDING is a valid status choice."""
+        payment = Payment.objects.create(
+            user=self.user,
+            amount=10000,
+            status=Payment.Status.PENDING,
+        )
+        payment.refresh_from_db()
+        
+        self.assertEqual(payment.status, Payment.Status.PENDING)
+        self.assertEqual(payment.status, "PENDING")
+
+    def test_payment_status_choice_refunded(self):
+        """Test that REFUNDED is a valid status choice."""
+        payment = Payment.objects.create(
+            user=self.user,
+            amount=10000,
+            status=Payment.Status.REFUNDED,
+        )
+        payment.refresh_from_db()
+        
+        self.assertEqual(payment.status, Payment.Status.REFUNDED)
+        self.assertEqual(payment.status, "REFUNDED")
+
+    def test_payment_status_choice_failed(self):
+        """Test that FAILED is a valid status choice."""
+        payment = Payment.objects.create(
+            user=self.user,
+            amount=10000,
+            status=Payment.Status.FAILED,
+        )
+        payment.refresh_from_db()
+        
+        self.assertEqual(payment.status, Payment.Status.FAILED)
+        self.assertEqual(payment.status, "FAILED")
+
+    def test_all_payment_status_choices_are_valid(self):
+        """Test that all payment status choices are defined correctly."""
+        expected_statuses = ["SUCCESS", "PENDING", "REFUNDED", "FAILED"]
+        actual_statuses = [choice[0] for choice in Payment.Status.choices]
+        
+        self.assertEqual(set(actual_statuses), set(expected_statuses))
+
+    def test_payment_status_can_be_updated(self):
+        """Test that payment status can be changed after creation."""
+        payment = Payment.objects.create(
+            user=self.user,
+            amount=10000,
+            status=Payment.Status.PENDING,
+        )
+        
+        payment.status = Payment.Status.SUCCESS
+        payment.save()
+        payment.refresh_from_db()
+        
+        self.assertEqual(payment.status, Payment.Status.SUCCESS)
+
+    def test_payment_description_is_optional(self):
+        """Test that description field is optional."""
+        payment = Payment.objects.create(
+            user=self.user,
+            amount=10000,
+        )
+        payment.refresh_from_db()
+        
+        self.assertIsNone(payment.description)
+
+    def test_payment_with_description(self):
+        """Test that payment can be created with a description."""
+        description = "Annual subscription payment"
+        payment = Payment.objects.create(
+            user=self.user,
+            amount=10000,
+            description=description,
+        )
+        payment.refresh_from_db()
+        
+        self.assertEqual(payment.description, description)
+
+    def test_payment_paid_at_is_optional(self):
+        """Test that paid_at is optional."""
+        payment = Payment.objects.create(
+            user=self.user,
+            amount=10000,
+            status=Payment.Status.PENDING,
+        )
+        payment.refresh_from_db()
+        
+        self.assertIsNone(payment.paid_at)
+
+    def test_payment_paid_at_can_be_set(self):
+        """Test that paid_at can be set to a datetime."""
+        paid_time = timezone.now()
+        payment = Payment.objects.create(
+            user=self.user,
+            amount=10000,
+            status=Payment.Status.SUCCESS,
+            paid_at=paid_time,
+        )
+        payment.refresh_from_db()
+        
+        self.assertEqual(payment.paid_at, paid_time)
+
+    def test_payment_user_relationship(self):
+        """Test that payment is correctly related to a user."""
+        payment = Payment.objects.create(
+            user=self.user,
+            amount=10000,
+        )
+        
+        self.assertEqual(payment.user.id, self.user.id)
+        self.assertEqual(payment.user.email, "payment@example.com")
+
+    def test_payment_user_reverse_relationship(self):
+        """Test that we can access payments from user object."""
+        payment1 = Payment.objects.create(user=self.user, amount=10000)
+        payment2 = Payment.objects.create(user=self.user, amount=20000)
+        
+        user_payments = self.user.payments.all()
+        
+        self.assertEqual(user_payments.count(), 2)
+        self.assertIn(payment1, user_payments)
+        self.assertIn(payment2, user_payments)
+
+
+class StripeWebhookTest(TestCase):
+    """
+    Test cases for Stripe webhook event processing functionality, including:
+    - Webhook verifies Stripe signature
+    - StripeWebhookEvent enforces unique event_id
+    - checkout.session.completed updates invoice to PAID
+    - invoice.payment_failed updates invoice to PAYMENT_FAILED
+    - Duplicate events are deduplicated (StripeWebhookEvent)
+    - Invalid signature returns 400
+    """
+
+    def setUp(self):
+        """Set up test data for Stripe webhook tests."""
+        self.client = Client()
+        self.webhook_url = reverse('stripe_webhook')
+        
+        # Create test user and invoice
+        self.user = User.objects.create_user(
+            email="webhook@example.com",
+            password="testpass123",
+            first_name="Webhook",
+            last_name="Tester",
+            is_active=True,
+        )
+        self.invoice = Invoice.objects.create(
+            user=self.user,
+            amount=50000,  # $500.00
+            status=Invoice.Status.PENDING,
+            stripe_invoice_id="inv_stripe_test_123",
+        )
+
+    def test_webhook_verifies_stripe_signature_success(self):
+        """Test that webhook accepts valid Stripe signature."""
+        webhook_data = {
+            "id": "evt_test_valid_sig",
+            "type": "invoice.paid",
+            "data": {
+                "object": {
+                    "id": "inv_stripe_test_123",
+                    "metadata": {"invoice_id": str(self.invoice.id)},
+                    "status": "paid"
+                }
+            }
+        }
+
+        with patch("finances.views.stripe.Webhook.construct_event", return_value=webhook_data), \
+             patch("finances.views.settings.STRIPE_WEBHOOK_SECRET", "test_secret"):
+            response = self.client.post(
+                self.webhook_url,
+                data=json.dumps(webhook_data),
+                content_type='application/json',
+                HTTP_STRIPE_SIGNATURE='test_sig'
+            )
+            
+            self.assertEqual(response.status_code, 200)
+            response_data = json.loads(response.content)
+            self.assertEqual(response_data["status"], "success")
+
+    def test_webhook_rejects_missing_signature_header(self):
+        """Test that webhook rejects requests without Stripe-Signature header."""
+        webhook_data = {
+            "id": "evt_test_no_sig",
+            "type": "invoice.paid",
+            "data": {"object": {}}
+        }
+
+        with patch("finances.views.settings.STRIPE_WEBHOOK_SECRET", "test_secret"):
+            response = self.client.post(
+                self.webhook_url,
+                data=json.dumps(webhook_data),
+                content_type='application/json'
+            )
+            
+            self.assertEqual(response.status_code, 400)
+            response_data = json.loads(response.content)
+            self.assertEqual(response_data["error"], "Missing signature")
+
+    def test_webhook_rejects_invalid_signature(self):
+        """Test that webhook rejects invalid Stripe signature."""
+        webhook_data = {
+            "id": "evt_test_invalid_sig",
+            "type": "invoice.paid",
+            "data": {"object": {}}
+        }
+
+        with patch("finances.views.stripe.Webhook.construct_event", side_effect=stripe.error.SignatureVerificationError("Invalid signature", None)), \
+             patch("finances.views.settings.STRIPE_WEBHOOK_SECRET", "test_secret"):
+            response = self.client.post(
+                self.webhook_url,
+                data=json.dumps(webhook_data),
+                content_type='application/json',
+                HTTP_STRIPE_SIGNATURE='invalid_sig'
+            )
+            
+            self.assertEqual(response.status_code, 400)
+            response_data = json.loads(response.content)
+            self.assertEqual(response_data["error"], "Invalid signature")
+
+    def test_webhook_rejects_invalid_payload(self):
+        """Test that webhook rejects invalid JSON payload."""
+        with patch("finances.views.stripe.Webhook.construct_event", side_effect=ValueError("Invalid JSON")), \
+             patch("finances.views.settings.STRIPE_WEBHOOK_SECRET", "test_secret"):
+            response = self.client.post(
+                self.webhook_url,
+                data="invalid json",
+                content_type='application/json',
+                HTTP_STRIPE_SIGNATURE='test_sig'
+            )
+            
+            self.assertEqual(response.status_code, 400)
+            response_data = json.loads(response.content)
+            self.assertEqual(response_data["error"], "Invalid payload")
+
+    def test_stripe_webhook_event_enforces_unique_event_id(self):
+        """Test that StripeWebhookEvent enforces unique event_id constraint."""
+        event_id = "evt_unique_test_123"
+        event_data = {
+            "id": event_id,
+            "type": "invoice.paid",
+            "data": {"object": {}}
+        }
+
+        # First event should be created
+        with patch("finances.views.stripe.Webhook.construct_event", return_value=event_data), \
+             patch("finances.views.settings.STRIPE_WEBHOOK_SECRET", "test_secret"):
+            response1 = self.client.post(
+                self.webhook_url,
+                data=json.dumps(event_data),
+                content_type='application/json',
+                HTTP_STRIPE_SIGNATURE='test_sig'
+            )
+            
+            self.assertEqual(response1.status_code, 200)
+            self.assertTrue(StripeWebhookEvent.objects.filter(event_id=event_id).exists())
+
+        # Duplicate event should be detected and ignored
+        with patch("finances.views.stripe.Webhook.construct_event", return_value=event_data), \
+             patch("finances.views.settings.STRIPE_WEBHOOK_SECRET", "test_secret"):
+            response2 = self.client.post(
+                self.webhook_url,
+                data=json.dumps(event_data),
+                content_type='application/json',
+                HTTP_STRIPE_SIGNATURE='test_sig'
+            )
+            
+            self.assertEqual(response2.status_code, 200)
+            response_data = json.loads(response2.content)
+            self.assertEqual(response_data["status"], "duplicate")
+
+        # Should still be only one event in database
+        self.assertEqual(StripeWebhookEvent.objects.filter(event_id=event_id).count(), 1)
+
+    def test_stripe_webhook_event_stores_event_data(self):
+        """Test that StripeWebhookEvent stores event data correctly."""
+        event_id = "evt_store_test_456"
+        event_type = "invoice.paid"
+        webhook_data = {
+            "id": event_id,
+            "type": event_type,
+            "data": {
+                "object": {
+                    "id": "inv_test_123",
+                    "amount_due": 50000
+                }
+            }
+        }
+
+        with patch("finances.views.stripe.Webhook.construct_event", return_value=webhook_data), \
+             patch("finances.views.settings.STRIPE_WEBHOOK_SECRET", "test_secret"):
+            response = self.client.post(
+                self.webhook_url,
+                data=json.dumps(webhook_data),
+                content_type='application/json',
+                HTTP_STRIPE_SIGNATURE='test_sig'
+            )
+            
+            self.assertEqual(response.status_code, 200)
+            
+            # Check that event was stored
+            event = StripeWebhookEvent.objects.get(event_id=event_id)
+            self.assertEqual(event.event_type, event_type)
+            self.assertEqual(event.payload, webhook_data)
+            self.assertIsNotNone(event.received_at)
+
+    def test_checkout_session_completed_updates_invoice_to_paid(self):
+        """Test that invoice.paid event updates invoice to PAID."""
+        webhook_data = {
+            "id": "evt_invoice_paid",
+            "type": "invoice.paid",
+            "data": {
+                "object": {
+                    "id": "inv_stripe_test_123",
+                    "metadata": {"invoice_id": str(self.invoice.id)},
+                    "status": "paid"
+                }
+            }
+        }
+
+        # Verify initial state
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, Invoice.Status.PENDING)
+        self.assertFalse(self.invoice.paid)
+        initial_payment_count = Payment.objects.count()
+
+        with patch("finances.views.stripe.Webhook.construct_event", return_value=webhook_data), \
+             patch("finances.views.settings.STRIPE_WEBHOOK_SECRET", "test_secret"):
+            response = self.client.post(
+                self.webhook_url,
+                data=json.dumps(webhook_data),
+                content_type='application/json',
+                HTTP_STRIPE_SIGNATURE='test_sig'
+            )
+            
+            self.assertEqual(response.status_code, 200)
+            
+            # Check invoice was updated
+            self.invoice.refresh_from_db()
+            self.assertEqual(self.invoice.status, Invoice.Status.PAID)
+            self.assertTrue(self.invoice.paid)
+            
+            # Check payment record was created
+            final_payment_count = Payment.objects.count()
+            self.assertEqual(final_payment_count, initial_payment_count + 1)
+            
+            payment = Payment.objects.latest('id')
+            self.assertEqual(payment.user, self.user)
+            self.assertEqual(payment.amount, 50000)
+            self.assertEqual(payment.status, Payment.Status.SUCCESS)
+            self.assertIsNotNone(payment.paid_at)
+
+    def test_invoice_payment_failed_updates_invoice_to_payment_failed(self):
+        """Test that invoice.payment_failed event updates invoice to PAYMENT_FAILED."""
+        webhook_data = {
+            "id": "evt_payment_failed",
+            "type": "invoice.payment_failed",
+            "data": {
+                "object": {
+                    "id": "inv_stripe_test_123",
+                    "metadata": {"invoice_id": str(self.invoice.id)},
+                    "status": "open"
+                }
+            }
+        }
+
+        # Verify initial state
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, Invoice.Status.PENDING)
+        initial_payment_count = Payment.objects.count()
+
+        with patch("finances.views.stripe.Webhook.construct_event", return_value=webhook_data), \
+             patch("finances.views.settings.STRIPE_WEBHOOK_SECRET", "test_secret"):
+            response = self.client.post(
+                self.webhook_url,
+                data=json.dumps(webhook_data),
+                content_type='application/json',
+                HTTP_STRIPE_SIGNATURE='test_sig'
+            )
+            
+            self.assertEqual(response.status_code, 200)
+            
+            # Check invoice was updated
+            self.invoice.refresh_from_db()
+            self.assertEqual(self.invoice.status, Invoice.Status.PAYMENT_FAILED)
+            self.assertFalse(self.invoice.paid)
+            
+            # Check payment record was created for failed payment
+            final_payment_count = Payment.objects.count()
+            self.assertEqual(final_payment_count, initial_payment_count + 1)
+            
+            payment = Payment.objects.latest('id')
+            self.assertEqual(payment.user, self.user)
+            self.assertEqual(payment.amount, 50000)
+            self.assertEqual(payment.status, Payment.Status.FAILED)
+            self.assertIsNotNone(payment.paid_at)
+
+    def test_duplicate_events_are_deduplicated(self):
+        """Test that duplicate webhook events are properly deduplicated."""
+        event_id = "evt_duplicate_test"
+        webhook_data = {
+            "id": event_id,
+            "type": "invoice.paid",
+            "data": {
+                "object": {
+                    "id": "inv_stripe_test_123",
+                    "metadata": {"invoice_id": str(self.invoice.id)},
+                    "status": "paid"
+                }
+            }
+        }
+
+        # First webhook call
+        with patch("finances.views.stripe.Webhook.construct_event", return_value=webhook_data), \
+             patch("finances.views.settings.STRIPE_WEBHOOK_SECRET", "test_secret"):
+            response1 = self.client.post(
+                self.webhook_url,
+                data=json.dumps(webhook_data),
+                content_type='application/json',
+                HTTP_STRIPE_SIGNATURE='test_sig'
+            )
+            
+            self.assertEqual(response1.status_code, 200)
+            response_data1 = json.loads(response1.content)
+            self.assertEqual(response_data1["status"], "success")
+
+        # Verify invoice was updated on first call
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, Invoice.Status.PAID)
+
+        # Reset invoice status to test deduplication doesn't re-process
+        self.invoice.status = Invoice.Status.PENDING
+        self.invoice.paid = False
+        self.invoice.save()
+
+        # Second webhook call with same event_id
+        with patch("finances.views.stripe.Webhook.construct_event", return_value=webhook_data), \
+             patch("finances.views.settings.STRIPE_WEBHOOK_SECRET", "test_secret"):
+            response2 = self.client.post(
+                self.webhook_url,
+                data=json.dumps(webhook_data),
+                content_type='application/json',
+                HTTP_STRIPE_SIGNATURE='test_sig'
+            )
+            
+            self.assertEqual(response2.status_code, 200)
+            response_data2 = json.loads(response2.content)
+            self.assertEqual(response_data2["status"], "duplicate")
+
+        # Verify invoice was NOT updated on duplicate call
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, Invoice.Status.PENDING)
+        self.assertFalse(self.invoice.paid)
+
+        # Verify only one webhook event was stored
+        self.assertEqual(StripeWebhookEvent.objects.filter(event_id=event_id).count(), 1)
+
+    def test_invalid_signature_returns_400(self):
+        """Test that invalid signature returns HTTP 400."""
+        webhook_data = {
+            "id": "evt_invalid_sig_test",
+            "type": "invoice.paid",
+            "data": {"object": {}}
+        }
+
+        with patch("finances.views.stripe.Webhook.construct_event", side_effect=stripe.error.SignatureVerificationError("Invalid signature", None)), \
+             patch("finances.views.settings.STRIPE_WEBHOOK_SECRET", "test_secret"):
+            response = self.client.post(
+                self.webhook_url,
+                data=json.dumps(webhook_data),
+                content_type='application/json',
+                HTTP_STRIPE_SIGNATURE='invalid_signature'
+            )
+            
+            self.assertEqual(response.status_code, 400)
+            response_data = json.loads(response.content)
+            self.assertEqual(response_data["error"], "Invalid signature")
+
+    def test_webhook_ignores_unrecognized_event_types(self):
+        """Test that webhook ignores unrecognized event types."""
+        webhook_data = {
+            "id": "evt_unrecognized",
+            "type": "customer.created",  # Not an invoice event
+            "data": {"object": {}}
+        }
+
+        with patch("finances.views.stripe.Webhook.construct_event", return_value=webhook_data), \
+             patch("finances.views.settings.STRIPE_WEBHOOK_SECRET", "test_secret"):
+            response = self.client.post(
+                self.webhook_url,
+                data=json.dumps(webhook_data),
+                content_type='application/json',
+                HTTP_STRIPE_SIGNATURE='test_sig'
+            )
+            
+            self.assertEqual(response.status_code, 200)
+            response_data = json.loads(response.content)
+            self.assertEqual(response_data["status"], "success")
+
+    def test_webhook_handles_missing_invoice_id(self):
+        """Test that webhook handles events with missing invoice ID gracefully."""
+        webhook_data = {
+            "id": "evt_no_invoice_id",
+            "type": "invoice.paid",
+            "data": {
+                "object": {
+                    "id": "inv_unknown",
+                    "status": "paid"
+                    # No metadata with invoice_id
+                }
+            }
+        }
+
+        with patch("finances.views.stripe.Webhook.construct_event", return_value=webhook_data), \
+             patch("finances.views.settings.STRIPE_WEBHOOK_SECRET", "test_secret"):
+            response = self.client.post(
+                self.webhook_url,
+                data=json.dumps(webhook_data),
+                content_type='application/json',
+                HTTP_STRIPE_SIGNATURE='test_sig'
+            )
+            
+            self.assertEqual(response.status_code, 200)
+            response_data = json.loads(response.content)
+            self.assertEqual(response_data["status"], "ignored")
+
+    def test_webhook_only_accepts_post_requests(self):
+        """Test that webhook only accepts POST requests."""
+        # Test GET request
+        response = self.client.get(self.webhook_url)
+        self.assertEqual(response.status_code, 405)
+        response_data = json.loads(response.content)
+        self.assertEqual(response_data["error"], "Method not allowed")
+
+        # Test PUT request
+        response = self.client.put(self.webhook_url)
+        self.assertEqual(response.status_code, 405)
+        response_data = json.loads(response.content)
+        self.assertEqual(response_data["error"], "Method not allowed")
