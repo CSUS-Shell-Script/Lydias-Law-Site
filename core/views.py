@@ -42,7 +42,6 @@ def practice_areas(r):
 
 def about(r): return render(r, "about.html")
 def services(r): return render(r, "services.html")
-def contact(r): return render(r, "contact.html")
 
 def payment(request):
     """
