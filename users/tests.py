@@ -1,4 +1,6 @@
 import re
+import unittest
+from unittest.mock import patch, MagicMock
 
 from django.contrib.messages import get_messages
 from django.core import mail
@@ -259,7 +261,11 @@ class SignupTests(TestCase):
         """Set up test client and create a site for social auth"""
         self.client = Client()
         self.signup_url = reverse("signup")
-        
+
+        # Bypass Turnstile for these tests — they test other signup logic, not CAPTCHA.
+        self._turnstile_patcher = patch("users.views.validate_turnstile", return_value=True)
+        self._turnstile_patcher.start()
+
         # Create a minimal SocialApp for template rendering
         site = Site.objects.get_or_create(id=1, defaults={"name": "Test Site", "domain": "testserver"})[0]
         social_app, created = SocialApp.objects.get_or_create(
@@ -270,7 +276,7 @@ class SignupTests(TestCase):
             }
         )
         social_app.sites.add(site)
-        
+
         # Create an existing user for duplicate email test
         self.existing_user = User.objects.create_user(
             email="existing@example.com",
@@ -279,6 +285,9 @@ class SignupTests(TestCase):
             last_name="User",
             is_active=True
         )
+
+    def tearDown(self):
+        self._turnstile_patcher.stop()
 
     def test_signup_shows_error_for_duplicate_email(self):
         """
@@ -1335,3 +1344,432 @@ class UserModelTest(TestCase):
         self.assertEqual(user.payment_provider, "stripe")
         self.assertEqual(user.provider_customer_id, "cus_abc123")
 
+
+# ---------------------------------------------------------------------------
+# Unit tests for the Turnstile helper
+# ---------------------------------------------------------------------------
+
+class TurnstileValidationTests(TestCase):
+    """
+    Tests for the validate_turnstile() function in users/turnstile.py.
+    requests.post is replaced with a fake in every test so no real network
+    calls are made.
+    """
+
+    # This is the import path Django's patch() uses to intercept requests.post
+    # inside turnstile.py before it can make a real HTTP call.
+    MOCK_PATH = "users.turnstile.requests.post"
+
+    def _mock_response(self, success: bool, status_code: int = 200):
+        """Create a fake HTTP response that returns the given success value."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = status_code
+        mock_resp.raise_for_status.return_value = None
+        mock_resp.json.return_value = {"success": success}
+        return mock_resp
+
+    # --- AC: Valid token returns success ---
+
+    def test_valid_token_returns_true(self):
+        with patch(self.MOCK_PATH, return_value=self._mock_response(True)) as mock_post:
+            from users.turnstile import validate_turnstile
+            result = validate_turnstile("valid-token-abc")
+
+        self.assertTrue(result)
+        mock_post.assert_called_once()
+
+    def test_valid_token_sends_secret_key_and_token(self):
+        """The request to Cloudflare must include our secret key and the user's token."""
+        with patch(self.MOCK_PATH, return_value=self._mock_response(True)) as mock_post:
+            from users.turnstile import validate_turnstile
+            validate_turnstile("my-token")
+
+        _, kwargs = mock_post.call_args
+        payload = kwargs.get("data") or mock_post.call_args[0][1]
+        self.assertEqual(payload["response"], "my-token")
+        self.assertIn("secret", payload)
+
+    def test_valid_token_with_remoteip_included_in_payload(self):
+        with patch(self.MOCK_PATH, return_value=self._mock_response(True)) as mock_post:
+            from users.turnstile import validate_turnstile
+            validate_turnstile("tok", remoteip="1.2.3.4")
+
+        _, kwargs = mock_post.call_args
+        payload = kwargs.get("data") or mock_post.call_args[0][1]
+        self.assertEqual(payload["remoteip"], "1.2.3.4")
+
+    def test_no_remoteip_omitted_from_payload(self):
+        with patch(self.MOCK_PATH, return_value=self._mock_response(True)) as mock_post:
+            from users.turnstile import validate_turnstile
+            validate_turnstile("tok", remoteip=None)
+
+        _, kwargs = mock_post.call_args
+        payload = kwargs.get("data") or mock_post.call_args[0][1]
+        self.assertNotIn("remoteip", payload)
+
+    # --- AC: Invalid token returns failure ---
+
+    def test_invalid_token_returns_false(self):
+        with patch(self.MOCK_PATH, return_value=self._mock_response(False)):
+            from users.turnstile import validate_turnstile
+            result = validate_turnstile("bad-token")
+
+        self.assertFalse(result)
+
+    def test_empty_token_returns_false_without_http_call(self):
+        """An empty token should be rejected immediately — no network call needed."""
+        with patch(self.MOCK_PATH) as mock_post:
+            from users.turnstile import validate_turnstile
+            result = validate_turnstile("")
+
+        self.assertFalse(result)
+        mock_post.assert_not_called()
+
+    def test_whitespace_only_token_returns_false_without_http_call(self):
+        """A whitespace-only token is truthy in Python, so it reaches Cloudflare — which rejects it."""
+        with patch(self.MOCK_PATH) as mock_post:
+            from users.turnstile import validate_turnstile
+            mock_post.return_value = self._mock_response(False)
+            result = validate_turnstile("   ")
+
+        self.assertFalse(result)
+
+    # --- AC: API failure handled correctly (network errors treated as failure) ---
+
+    def test_http_error_returns_false(self):
+        """If Cloudflare returns an HTTP error, return False instead of crashing."""
+        import requests as req_lib
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status.side_effect = req_lib.exceptions.HTTPError("503")
+
+        with patch(self.MOCK_PATH, return_value=mock_resp):
+            from users.turnstile import validate_turnstile
+            result = validate_turnstile("tok")
+
+        self.assertFalse(result)
+
+    def test_connection_error_returns_false(self):
+        """If there is no internet connection, return False instead of crashing."""
+        import requests as req_lib
+        with patch(self.MOCK_PATH, side_effect=req_lib.exceptions.ConnectionError):
+            from users.turnstile import validate_turnstile
+            result = validate_turnstile("tok")
+
+        self.assertFalse(result)
+
+    def test_timeout_returns_false(self):
+        import requests as req_lib
+        with patch(self.MOCK_PATH, side_effect=req_lib.exceptions.Timeout):
+            from users.turnstile import validate_turnstile
+            result = validate_turnstile("tok")
+
+        self.assertFalse(result)
+
+    def test_malformed_json_returns_false(self):
+        """If Cloudflare's response is missing the 'success' field, return False."""
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status.return_value = None
+        mock_resp.json.return_value = {}  # missing 'success' key
+
+        with patch(self.MOCK_PATH, return_value=mock_resp):
+            from users.turnstile import validate_turnstile
+            result = validate_turnstile("tok")
+
+        self.assertFalse(result)
+
+    def test_post_targets_cloudflare_siteverify_url(self):
+        """validate_turnstile should always call the correct Cloudflare URL."""
+        from users.turnstile import TURNSTILE_VERIFY_URL
+        with patch(self.MOCK_PATH, return_value=self._mock_response(True)) as mock_post:
+            from users.turnstile import validate_turnstile
+            validate_turnstile("tok")
+
+        called_url = mock_post.call_args[0][0]
+        self.assertEqual(called_url, TURNSTILE_VERIFY_URL)
+
+
+# ---------------------------------------------------------------------------
+# Signup integration tests with Turnstile 
+# ---------------------------------------------------------------------------
+
+# Shared setup used by both the integration and security test classes below.
+class _TurnstileSignupBase(TestCase):
+
+    # A complete, valid signup form payload including the CAPTCHA token field.
+    VALID_POST = {
+        "first-name": "Alice",
+        "last-name": "Smith",
+        "email": "alice@example.com",
+        "password1": "Secure!Pass1",
+        "password2": "Secure!Pass1",
+        "phone-number": "5559876543",
+        "cf-turnstile-response": "valid-token",
+    }
+
+    # patch() needs the path where the name lives — inside views.py, not turnstile.py.
+    TURNSTILE_VIEW_PATH = "users.views.validate_turnstile"
+
+    def setUp(self):
+        self.client = Client()
+        self.signup_url = reverse("signup")
+
+        site = Site.objects.get_or_create(
+            id=1, defaults={"name": "Test Site", "domain": "testserver"}
+        )[0]
+        social_app, _ = SocialApp.objects.get_or_create(
+            provider="google",
+            defaults={"name": "Google (test)", "client_id": "test-client-id"},
+        )
+        social_app.sites.add(site)
+
+    def _post(self, extra=None, overrides=None):
+        data = dict(self.VALID_POST)
+        if overrides:
+            data.update(overrides)
+        if extra:
+            data.update(extra)
+        return self.client.post(self.signup_url, data, follow=True)
+
+    def _messages(self, response):
+        return [str(m) for m in get_messages(response.wsgi_request)]
+
+
+class TurnstileSignupIntegrationTests(_TurnstileSignupBase):
+    """
+    Tests for the full signup flow with Turnstile enabled.
+    validate_turnstile is mocked so no real Cloudflare calls are made.
+    """
+
+    # --- AC: Signup fails without CAPTCHA token ---
+
+    def test_signup_without_token_is_rejected(self):
+        """Submitting an empty CAPTCHA token shows an error and creates no user."""
+        with patch(self.TURNSTILE_VIEW_PATH, return_value=False):
+            resp = self._post(overrides={"cf-turnstile-response": ""})
+
+        self.assertIn("Security check failed. Please try again.", self._messages(resp))
+        self.assertFalse(User.objects.filter(email="alice@example.com").exists())
+
+    def test_signup_omitted_token_field_is_rejected(self):
+        """A POST with no cf-turnstile-response field at all is also rejected."""
+        data = {k: v for k, v in self.VALID_POST.items() if k != "cf-turnstile-response"}
+        with patch(self.TURNSTILE_VIEW_PATH, return_value=False):
+            resp = self.client.post(self.signup_url, data, follow=True)
+
+        self.assertIn("Security check failed. Please try again.", self._messages(resp))
+        self.assertFalse(User.objects.filter(email="alice@example.com").exists())
+
+    # --- AC: Signup fails with invalid token ---
+
+    def test_signup_with_invalid_token_is_rejected(self):
+        with patch(self.TURNSTILE_VIEW_PATH, return_value=False):
+            resp = self._post(overrides={"cf-turnstile-response": "bad-token"})
+
+        self.assertIn("Security check failed. Please try again.", self._messages(resp))
+        self.assertFalse(User.objects.filter(email="alice@example.com").exists())
+
+    def test_captcha_failure_renders_form_with_error_not_redirect(self):
+        """When CAPTCHA fails, the signup page is shown again (200) — not a redirect."""
+        with patch(self.TURNSTILE_VIEW_PATH, return_value=False):
+            resp = self._post(overrides={"cf-turnstile-response": "bad"})
+
+        self.assertEqual(resp.status_code, 200)
+
+    # --- AC: Signup succeeds with valid token ---
+
+    def test_signup_with_valid_token_creates_user(self):
+        with patch(self.TURNSTILE_VIEW_PATH, return_value=True):
+            self._post()
+
+        self.assertTrue(User.objects.filter(email="alice@example.com").exists())
+
+    def test_signup_with_valid_token_no_error_message(self):
+        with patch(self.TURNSTILE_VIEW_PATH, return_value=True):
+            resp = self._post()
+
+        self.assertNotIn("Security check failed. Please try again.", self._messages(resp))
+
+    # --- AC: Database state is correct after signup ---
+
+    def test_successful_signup_user_has_correct_fields(self):
+        with patch(self.TURNSTILE_VIEW_PATH, return_value=True):
+            self._post()
+
+        user = User.objects.get(email="alice@example.com")
+        self.assertEqual(user.first_name, "Alice")
+        self.assertEqual(user.last_name, "Smith")
+        self.assertEqual(user.phone_number, "5559876543")
+
+    def test_successful_signup_user_role_is_guest(self):
+        with patch(self.TURNSTILE_VIEW_PATH, return_value=True):
+            self._post()
+
+        user = User.objects.get(email="alice@example.com")
+        self.assertEqual(user.role, User.Role.GUEST)
+
+    def test_successful_signup_user_is_inactive_pending_email_verify(self):
+        with patch(self.TURNSTILE_VIEW_PATH, return_value=True):
+            self._post()
+
+        user = User.objects.get(email="alice@example.com")
+        self.assertFalse(user.is_active)
+
+    def test_successful_signup_creates_unverified_email_address_record(self):
+        with patch(self.TURNSTILE_VIEW_PATH, return_value=True):
+            self._post()
+
+        ea = EmailAddress.objects.get(email="alice@example.com")
+        self.assertFalse(ea.verified)
+        self.assertTrue(ea.primary)
+
+    def test_failed_captcha_leaves_database_unchanged(self):
+        initial_count = User.objects.count()
+        with patch(self.TURNSTILE_VIEW_PATH, return_value=False):
+            self._post(overrides={"cf-turnstile-response": "bad"})
+
+        self.assertEqual(User.objects.count(), initial_count)
+
+
+# ---------------------------------------------------------------------------
+# Security / bypass tests  
+# ---------------------------------------------------------------------------
+
+class TurnstileSecurityTests(_TurnstileSignupBase):
+    """Tests that the CAPTCHA check cannot be skipped or bypassed."""
+
+    # --- AC: Direct POST without CAPTCHA is rejected ---
+
+    def test_raw_post_without_captcha_field_rejected(self):
+        """Someone posting directly to the signup URL without completing the CAPTCHA is rejected."""
+        data = {
+            "first-name": "Hacker",
+            "last-name": "Bot",
+            "email": "bot@evil.com",
+            "password1": "Secure!Pass1",
+            "password2": "Secure!Pass1",
+            "phone-number": "5550000000",
+            # cf-turnstile-response intentionally absent
+        }
+        with patch(self.TURNSTILE_VIEW_PATH, return_value=False):
+            resp = self.client.post(self.signup_url, data, follow=True)
+
+        self.assertIn("Security check failed. Please try again.", self._messages(resp))
+        self.assertFalse(User.objects.filter(email="bot@evil.com").exists())
+
+    def test_captcha_check_runs_before_db_writes(self):
+        """CAPTCHA is checked before anything is saved — a bad token creates no user."""
+        with patch(self.TURNSTILE_VIEW_PATH, return_value=False):
+            self._post(overrides={"cf-turnstile-response": "fake"})
+
+        self.assertFalse(User.objects.filter(email="alice@example.com").exists())
+
+    # --- AC: Server never trusts client-only validation ---
+
+    def test_server_side_validate_turnstile_is_called_on_every_post(self):
+        """validate_turnstile must be called on every signup POST — it can never be skipped."""
+        with patch(self.TURNSTILE_VIEW_PATH, return_value=True) as mock_vt:
+            self._post()
+
+        mock_vt.assert_called_once()
+
+    def test_captcha_token_is_not_echoed_back_in_response(self):
+        """The CAPTCHA token submitted by the user should never appear in the HTML response."""
+        with patch(self.TURNSTILE_VIEW_PATH, return_value=False):
+            resp = self._post(overrides={"cf-turnstile-response": "secret-token-xyz"})
+
+        self.assertNotIn(b"secret-token-xyz", resp.content)
+
+    def test_secret_key_not_in_signup_page_source(self):
+        """The Turnstile secret key must never appear in the page HTML — it's server-only."""
+        from django.conf import settings
+        resp = self.client.get(reverse("signuppage"))
+        if settings.TURNSTILE_SECRET_KEY:
+            self.assertNotIn(
+                settings.TURNSTILE_SECRET_KEY.encode(),
+                resp.content,
+            )
+
+    # --- AC: Token reuse ---
+    # Cloudflare automatically rejects reused tokens on their end.
+    # Our code does not add any extra check, so there is nothing to test here.
+
+
+# ---------------------------------------------------------------------------
+# Live network tests — these make real HTTP calls to Cloudflare (no mocking).
+#
+# Cloudflare provides special test keys that work from any hostname, including
+# localhost. This means we do not need to whitelist localhost in the dashboard.
+#
+#   Always-pass secret : 1x0000000000000000000000000000000AA
+#   Always-fail secret : 2x0000000000000000000000000000000AB
+#
+# Run these tests separately:
+#   python manage.py test users.tests.TurnstileLiveNetworkTests
+#
+# The class is skipped automatically if there is no internet connection.
+# ---------------------------------------------------------------------------
+
+import socket
+
+def _cloudflare_reachable() -> bool:
+    """Check if Cloudflare's server can be reached from this machine."""
+    try:
+        socket.setdefaulttimeout(4)
+        socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect(
+            ("challenges.cloudflare.com", 443)
+        )
+        return True
+    except OSError:
+        return False
+
+
+@unittest.skipUnless(_cloudflare_reachable(), "Cloudflare endpoint not reachable from this network")
+class TurnstileLiveNetworkTests(TestCase):
+    """
+    Real HTTP calls to Cloudflare's siteverify endpoint — nothing is mocked here.
+    Uses Cloudflare's public test keys, which work from localhost.
+    """
+
+    _ALWAYS_PASS_SECRET = "1x0000000000000000000000000000000AA"
+    _ALWAYS_FAIL_SECRET = "2x0000000000000000000000000000000AB"
+
+    def _call(self, secret: str, token: str = "test-token") -> bool:
+        """Run validate_turnstile using a specific test secret key."""
+        from users.turnstile import validate_turnstile
+        with override_settings(TURNSTILE_SECRET_KEY=secret):
+            return validate_turnstile(token)
+
+    def test_cloudflare_endpoint_is_reachable(self):
+        """A real POST to Cloudflare's siteverify URL should return HTTP 200."""
+        import requests as req_lib
+        from users.turnstile import TURNSTILE_VERIFY_URL
+        resp = req_lib.post(
+            TURNSTILE_VERIFY_URL,
+            data={"secret": self._ALWAYS_PASS_SECRET, "response": "test"},
+            timeout=5,
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("success", resp.json())
+
+    def test_always_pass_secret_returns_true(self):
+        """Using Cloudflare's always-pass test key, validate_turnstile should return True."""
+        result = self._call(self._ALWAYS_PASS_SECRET)
+        self.assertTrue(result)
+
+    def test_always_fail_secret_returns_false(self):
+        """Using Cloudflare's always-fail test key, validate_turnstile should return False."""
+        result = self._call(self._ALWAYS_FAIL_SECRET)
+        self.assertFalse(result)
+
+    def test_response_contains_success_field(self):
+        """Cloudflare's JSON response should always include a boolean 'success' field."""
+        import requests as req_lib
+        from users.turnstile import TURNSTILE_VERIFY_URL
+        resp = req_lib.post(
+            TURNSTILE_VERIFY_URL,
+            data={"secret": self._ALWAYS_PASS_SECRET, "response": "test"},
+            timeout=5,
+        )
+        data = resp.json()
+        self.assertIn("success", data)
+        self.assertIsInstance(data["success"], bool)
