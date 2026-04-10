@@ -23,6 +23,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.validators import validate_email
 from sitecontent.views import get_latest_website_content
 from core.decorators import superuser_required
+from users.turnstile import validate_turnstile
 import re
 
 # Directs to login page
@@ -118,12 +119,15 @@ def login_view(request):
     auth_login(request, user)
     return redirect("admin_dashboard" if user.is_staff else "client_dashboard")
 def signup_page(r):
-    return render(r, "users/signup.html")
+    from django.conf import settings
+    return render(r, "users/signup.html", {"TURNSTILE_SITE_KEY": settings.TURNSTILE_SITE_KEY})
 
 # We should start to think about refactoring the views into separated views files and import them into this main views file.
 # Signup view, directs to signup page and handles signup form submission
 def signup(r):
+    from django.conf import settings
     User = get_user_model()
+    ctx_base = {"TURNSTILE_SITE_KEY": settings.TURNSTILE_SITE_KEY}
     if r.method == 'POST':
         first_name = (r.POST.get('first-name') or "").strip()
         last_name = (r.POST.get('last-name') or "").strip()
@@ -139,42 +143,49 @@ def signup(r):
             "phone_number": phone_number,
         }
 
-        if (first_name == "" or 
-            last_name == "" or 
-            email == "" or 
-            phone_number == "" or 
-            password1 == "" or 
+        # Verify Cloudflare Turnstile before any other processing.
+        turnstile_token = r.POST.get("cf-turnstile-response", "")
+        remoteip = r.META.get("HTTP_X_FORWARDED_FOR", r.META.get("REMOTE_ADDR", ""))
+        if not validate_turnstile(turnstile_token, remoteip=remoteip or None):
+            messages.error(r, "Security check failed. Please try again.")
+            return render(r, "users/signup.html", {"form_data": form_data, **ctx_base})
+
+        if (first_name == "" or
+            last_name == "" or
+            email == "" or
+            phone_number == "" or
+            password1 == "" or
             password2 == ""):
             messages.error(r, "All fields must be filled in")
-            return render(r, "users/signup.html", {"form_data": form_data})
+            return render(r, "users/signup.html", {"form_data": form_data, **ctx_base})
 
         # Basic checks
         if password1 != password2:
             messages.error(r, "Passwords do not match.")
-            return render(r, 'users/signup.html', {"form_data": form_data})
+            return render(r, 'users/signup.html', {"form_data": form_data, **ctx_base})
 
         if password1 != password1.strip():
             messages.error(r, "Password cannot start or end with spaces.")
-            return render(r, 'users/signup.html', {"form_data": form_data})
-        
+            return render(r, 'users/signup.html', {"form_data": form_data, **ctx_base})
+
         # Checks if email is valid.
         # e.g. (checks for an @, ensures there is a domain like .com, and makes sure both parts are non-empty).
         try:
             validate_email(email)
         except ValidationError:
             messages.error(r, "Please enter a valid email address.")
-            return render(r, 'users/signup.html', {"form_data": form_data})
+            return render(r, 'users/signup.html', {"form_data": form_data, **ctx_base})
 
         if User.objects.filter(email__iexact=email).exists():
             messages.error(r, "An account with that email already exists.")
-            return render(r, 'users/signup.html', {"form_data": form_data})
+            return render(r, 'users/signup.html', {"form_data": form_data, **ctx_base})
 
         # Validate phone number format (only functions on basic US format: 10 digits, with or without dashes).
         # If international numbers are needed, this will need to be adjusted to account for that.
         phone_number_digits = re.sub(r'\D', '', phone_number)
         if len(phone_number_digits) != 10:
             messages.error(r, "Please enter a valid phone number.")
-            return render(r, 'users/signup.html', {"form_data": form_data})
+            return render(r, 'users/signup.html', {"form_data": form_data, **ctx_base})
 
         # Normalize phone number to digits only for storage.
         phone_number = phone_number_digits
