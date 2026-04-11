@@ -1537,3 +1537,246 @@ class FormatPhoneFilterTest(TestCase):
         t = Template("{% load phone_filter %}{{ value|format_phone }}")
         result = t.render(Context({"value": None}))
         self.assertEqual(result, "--")
+
+
+############################### Admin Dashboard (LLW-287) ###############################
+
+class AdminDashboardTests(TestCase):
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            email="admin@example.com",
+            password="pw",
+            first_name="Admin",
+            last_name="User",
+            is_staff=True,
+            is_active=True,
+        )
+        self.non_admin = User.objects.create_user(
+            email="client@example.com",
+            password="pw",
+            is_staff=False,
+            is_active=True,
+        )
+        self.url = reverse("admin_dashboard")
+
+    # --- A) Superuser required ---
+
+    def test_unauthenticated_gets_403(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 403)
+
+    def test_non_admin_gets_403(self):
+        self.client.force_login(self.non_admin)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 403)
+
+    def test_admin_gets_200(self):
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+
+    def test_uses_dashboard_template(self):
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url)
+        self.assertTemplateUsed(response, "admin/dashboard.html")
+
+    # --- B) Calendar / content context ---
+
+    def test_dashboard_passes_upcoming_appts_context(self):
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url)
+        self.assertIn("upcoming_appts", response.context)
+
+    def test_dashboard_passes_content_context(self):
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url)
+        self.assertIn("content", response.context)
+
+    def test_dashboard_renders_calendar_section(self):
+        '''
+        IMPORTANT - this test will fail until we embed calendly in the dashboard (scheduled for sprint 10)
+        '''
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url)
+        self.assertContains(response, "calendly-inline-widget")
+
+    # --- C) Next 3 upcoming appointments with date/time/location ---
+
+    def _create_future_appointments(self, count, base_user=None):
+        if base_user is None:
+            base_user = self.non_admin
+        now = timezone.now()
+        for i in range(count):
+            Appointments.objects.create(
+                user_id=base_user,
+                start_time=now + timedelta(days=i + 1),
+                status=Appointments.Status.CONFIRMED,
+            )
+
+    def test_dashboard_shows_upcoming_appointments_in_context(self):
+        self._create_future_appointments(3)
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url)
+        self.assertEqual(len(response.context["upcoming_appts"]), 3)
+
+    def test_dashboard_caps_upcoming_at_5(self):
+        self._create_future_appointments(6)
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url)
+        self.assertLessEqual(len(response.context["upcoming_appts"]), 5)
+
+    def test_dashboard_renders_appointment_date_time(self):
+        self._create_future_appointments(1)
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url)
+        self.assertContains(response, "Upcoming Appointments")
+
+    def test_dashboard_renders_appointment_location(self):
+        self._create_future_appointments(1)
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url)
+        self.assertContains(response, "In Office")
+
+    def test_dashboard_renders_appointment_status_badge(self):
+        self._create_future_appointments(1)
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url)
+        self.assertContains(response, "Confirmed")
+
+    def test_cancelled_appointments_excluded_from_upcoming(self):
+        now = timezone.now()
+        Appointments.objects.create(
+            user_id=self.non_admin,
+            start_time=now + timedelta(days=1),
+            status=Appointments.Status.CANCELLED,
+            cancellation_reason="Cancelled for test",
+            cancelled_at=now,
+        )
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url)
+        self.assertEqual(len(response.context["upcoming_appts"]), 0)
+
+    # --- D) Empty state ---
+
+    def test_dashboard_empty_state_message(self):
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url)
+        self.assertContains(response, "no upcoming appointments")
+
+
+############################### Edge Cases and Error Handling (LLW-305) ###############################
+
+class EdgeCasesTests(TestCase):
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            email="admin@edge.com",
+            password="pw",
+            is_staff=True,
+            is_active=True,
+        )
+        self.non_admin = User.objects.create_user(
+            email="nonadmin@edge.com",
+            password="pw",
+            is_staff=False,
+            is_active=True,
+        )
+
+    # --- A) 404 for non-existent routes ---
+
+    def test_nonexistent_route_returns_404(self):
+        from django.test import override_settings
+        with override_settings(DEBUG=False):
+            response = self.client.get("/this-route-absolutely-does-not-exist-xyz/")
+        self.assertEqual(response.status_code, 404)
+
+    def test_404_page_contains_page_not_found(self):
+        from django.test import override_settings
+        with override_settings(DEBUG=False):
+            response = self.client.get("/this-route-absolutely-does-not-exist-xyz/")
+        self.assertContains(response, "Page Not Found", status_code=404)
+
+    def test_404_page_has_go_home_link(self):
+        from django.test import override_settings
+        with override_settings(DEBUG=False):
+            response = self.client.get("/this-route-absolutely-does-not-exist-xyz/")
+        self.assertContains(response, "Go Home", status_code=404)
+
+    def test_404_page_shows_error_code(self):
+        from django.test import override_settings
+        with override_settings(DEBUG=False):
+            response = self.client.get("/this-route-absolutely-does-not-exist-xyz/")
+        self.assertContains(response, "404", status_code=404)
+
+    # --- B) 403 page styling / content ---
+
+    def test_403_page_shows_permission_denied(self):
+        response = self.client.get(reverse("admin_dashboard"))
+        self.assertContains(response, "Permission Denied", status_code=403)
+
+    def test_403_page_unauthenticated_shows_not_signed_in(self):
+        response = self.client.get(reverse("admin_dashboard"))
+        self.assertContains(response, "not signed in", status_code=403)
+
+    def test_403_page_unauthenticated_has_sign_in_link(self):
+        response = self.client.get(reverse("admin_dashboard"))
+        self.assertContains(response, "Sign In", status_code=403)
+
+    def test_403_page_authenticated_shows_user_email(self):
+        self.client.force_login(self.non_admin)
+        response = self.client.get(reverse("admin_dashboard"))
+        self.assertContains(response, "nonadmin@edge.com", status_code=403)
+
+    def test_403_page_has_go_home_button(self):
+        response = self.client.get(reverse("admin_dashboard"))
+        self.assertContains(response, "Go Home", status_code=403)
+
+    def test_403_page_shows_error_code_403(self):
+        response = self.client.get(reverse("admin_dashboard"))
+        self.assertContains(response, "403", status_code=403)
+
+    # --- C) Empty state: admin dashboard with no appointments ---
+
+    def test_admin_dashboard_empty_state(self):
+        self.client.force_login(self.admin)
+        response = self.client.get(reverse("admin_dashboard"))
+        self.assertEqual(len(response.context["upcoming_appts"]), 0)
+        self.assertContains(response, "no upcoming appointments")
+
+    # --- D) Empty state: transaction history with no transactions ---
+
+    def test_client_invoices_empty_state(self):
+        self.client.force_login(self.non_admin)
+        response = self.client.get(reverse("client_invoices"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "No past invoices")
+
+    # --- E) Empty state: admin clients with no clients ---
+
+    def test_admin_clients_empty_state(self):
+        # No CLIENT role users created — page_obj must be empty
+        self.client.force_login(self.admin)
+        response = self.client.get(reverse("admin_clients"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context["page_obj"]), 0)
+
+    # --- F) Appointment for past date: excluded from upcoming ---
+
+    def test_past_appointment_excluded_from_admin_dashboard(self):
+        Appointments.objects.create(
+            user_id=self.non_admin,
+            start_time=timezone.now() - timedelta(days=1),
+            status=Appointments.Status.CONFIRMED,
+        )
+        self.client.force_login(self.admin)
+        response = self.client.get(reverse("admin_dashboard"))
+        self.assertEqual(len(response.context["upcoming_appts"]), 0)
+
+    def test_past_appointment_excluded_from_client_dashboard(self):
+        Appointments.objects.create(
+            user_id=self.non_admin,
+            start_time=timezone.now() - timedelta(days=1),
+            status=Appointments.Status.CONFIRMED,
+        )
+        self.client.force_login(self.non_admin)
+        response = self.client.get(reverse("client_dashboard"))
+        self.assertEqual(len(response.context["upcoming_appts"]), 0)

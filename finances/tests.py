@@ -2375,3 +2375,123 @@ class StripeWebhookTest(TestCase):
         self.assertEqual(response.status_code, 405)
         response_data = json.loads(response.content)
         self.assertEqual(response_data["error"], "Method not allowed")
+
+
+############################### Admin Transaction Tracking (LLW-290) ###############################
+
+class AdminTransactionDisplayTests(TestCase):
+    """
+    Tests for the admin transactions page display behavior:
+    - Paid/unpaid transactions shown with correct status badges
+    - Client info (name) appears in the table
+    - Empty state renders correctly
+    """
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            email="admin@txdisplay.com",
+            password="adminpass",
+            first_name="Admin",
+            last_name="User",
+            is_staff=True,
+            is_active=True,
+        )
+        self.client_user = User.objects.create_user(
+            email="client@txdisplay.com",
+            password="clientpass",
+            first_name="Jane",
+            last_name="Doe",
+            phone_number="5551234567",
+            role=User.Role.CLIENT,
+            is_active=True,
+        )
+        self.url = reverse("admin_transactions")
+
+    # --- A) Auth (extend existing coverage) ---
+
+    def test_unauthenticated_gets_403(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 403)
+
+    def test_non_admin_gets_403(self):
+        self.client.force_login(self.client_user)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 403)
+
+    # --- B) Paid / unpaid split ---
+
+    def test_paid_invoice_shows_paid_badge(self):
+        Invoice.objects.create(user=self.client_user, amount=5000, status=Invoice.Status.PAID, paid=True)
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "badge-paid")
+        self.assertContains(response, "Paid")
+
+    def test_pending_invoice_shows_pending_badge(self):
+        Invoice.objects.create(user=self.client_user, amount=3000, status=Invoice.Status.PENDING)
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "badge-pending")
+        self.assertContains(response, "Pending")
+
+    def test_voided_invoice_shows_voided_badge(self):
+        Invoice.objects.create(user=self.client_user, amount=2000, status=Invoice.Status.VOIDED)
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url)
+        self.assertContains(response, "badge-voided")
+        self.assertContains(response, "Voided")
+
+    def test_both_paid_and_pending_invoices_listed(self):
+        Invoice.objects.create(user=self.client_user, amount=5000, status=Invoice.Status.PAID, paid=True)
+        Invoice.objects.create(user=self.client_user, amount=3000, status=Invoice.Status.PENDING)
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url)
+        self.assertEqual(len(response.context["page_obj"]), 2)
+        self.assertContains(response, "badge-paid")
+        self.assertContains(response, "badge-pending")
+
+    # --- C) Client info displayed ---
+
+    def test_client_name_appears_in_table(self):
+        Invoice.objects.create(user=self.client_user, amount=1000)
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url)
+        # client_name property returns "Jane Doe" or falls back to email
+        self.assertContains(response, "Jane")
+
+    def test_client_email_shown_when_no_name(self):
+        nameless = User.objects.create_user(
+            email="noname@txdisplay.com",
+            password="pw",
+            first_name="",
+            last_name="",
+            is_active=True,
+        )
+        Invoice.objects.create(user=nameless, amount=500)
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url)
+        self.assertContains(response, "noname@txdisplay.com")
+
+    def test_invoice_amount_displayed_in_dollars(self):
+        Invoice.objects.create(user=self.client_user, amount=12500)  # $125.00
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url)
+        self.assertContains(response, "125.00")
+
+    def test_invoice_created_date_displayed(self):
+        Invoice.objects.create(user=self.client_user, amount=1000)
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url)
+        from django.utils import timezone as tz
+        year = str(tz.now().year)
+        self.assertContains(response, year)
+
+    # --- D) Empty state ---
+
+    def test_empty_transactions_shows_no_invoices_message(self):
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "No Invoices found")
