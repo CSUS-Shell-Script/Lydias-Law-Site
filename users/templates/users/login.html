@@ -2,8 +2,14 @@
 {% load socialaccount %}
 {% block content %}
 <div class="d-flex justify-content-center mt-5">
+    {% if role == 'admin' %}
+    <div class="card shadow px-5 py-4 border-2" style="width: 35rem; background-color: rgba(17, 90, 92, 0.12); border-radius: 1rem; border-color: #115A5C !important;">
+        <h3 class="mb-2" style="color: #115A5C;">Staff login</h3>
+        <p class="small mb-4" style="color: #333333;">Authorized staff only. Use your work email and password.</p>
+    {% else %}
     <div class="card shadow px-5 py-4" style="width: 35rem; background-color: rgb(120, 156, 148, 0.17); border-radius: 1rem; border: none;">
         <h3 class="mb-4" style="color: #333333;">Login</h3>
+    {% endif %}
 
         <form method="post" action="{% url 'login' %}">
             {% csrf_token %}
@@ -39,6 +45,12 @@
             {% endif %}
         </form>
 
+        {% if role == 'admin' %}
+        <div class="text-center small mb-2">
+            <span style="color: #BDBDBD !important">Not staff?</span>
+            <a href="{% url 'login' %}" class="text-decoration-none" style="color: #115A5C !important">Client login</a>
+        </div>
+        {% else %}
         <div class="text-center small">
             <span style="color: #BDBDBD !important">Are you an Admin?</span>
             <a href="{% url 'login' %}?role=admin" class="text-decoration-none" style="color: #115A5C !important">Login</a>
@@ -47,6 +59,7 @@
             <span style="color: #BDBDBD !important">Don't have an account?</span>
             <a href="{% url 'signuppage' %}" class="text-decoration-none" style="color: #115A5C !important">Sign up</a>
         </div>
+        {% endif %}
 
     </div>
 </div>

@@ -38,10 +38,6 @@
              href="{% url 'admin_editor' %}" style="font-weight: 500;">Editor</a>
         </li>
         <li class="nav-item">
-          <a class="nav-link text-dark px-4 py-2 rounded-pill {% if request.resolver_match.url_name == 'admin_history' %}bg-white{% else %}text-white{% endif %}"
-             href="{% url 'admin_history' %}" style="font-weight: 500;">History</a>
-        </li>
-        <li class="nav-item">
           <a class="nav-link text-dark px-4 py-2 rounded-pill {% if request.resolver_match.url_name == 'admin_create_invoices' %}bg-white{% else %}text-white{% endif %}"
              href="{% url 'admin_create_invoices' %}" style="font-weight: 500;"> Create Invoices</a>
         </li>

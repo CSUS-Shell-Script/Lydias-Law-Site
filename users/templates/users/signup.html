@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% block extra_js %}<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>{% endblock %}
 {% load socialaccount %}
 {% block content %}
 <div class="d-flex justify-content-center mt-4 mb-4">
@@ -71,6 +72,10 @@
           <li>8 characters long</li>
         </ul>
       </div>
+      <div class="mb-3">
+        <div class="cf-turnstile" data-sitekey="{{ TURNSTILE_SITE_KEY }}"></div>
+      </div>
+
       <div class="d-grid mb-4">
         <button type="submit" class="btn w-100" style="background-color:#2d7a73; border-radius:1.5rem; color:white !important;">Sign up</button>
       </div>
