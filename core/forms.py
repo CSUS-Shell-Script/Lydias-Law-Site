@@ -2,7 +2,7 @@
 
 from django import forms
 from django.forms import modelformset_factory
-from sitecontent.models import WebsiteContent, FAQItem
+from sitecontent.models import WebsiteContent, FAQItem, PracticeAreaItem
 
 
 class WebsiteContentForm(forms.ModelForm):
@@ -21,13 +21,10 @@ class WebsiteContentForm(forms.ModelForm):
             # about Page
             'nameTitle',
             'aboutMeDescription',
+            # contact Page
             'officeLocation',
-            # practice Areas
-            'stepParentAdoptionDescription',
-            'adultAdoptionDescription',
-            'guardianshipDescription',
-            'guardianshipToAdoptionDescription',
-            'independentAdoptionDescription',
+            'phoneNumber',
+            'emailAddress',
             # footer
             'footerDescription',
         ]
@@ -46,7 +43,17 @@ class WebsiteContentForm(forms.ModelForm):
             'officeLocation': forms.TextInput(attrs={
                 'class': 'form-control',
                 'maxlength': '200',
-                'placeholder': 'Enter office location'
+                'placeholder': 'Enter office address'
+            }),
+            'phoneNumber': forms.TextInput(attrs={
+                'class': 'form-control',
+                'maxlength': '20',
+                'placeholder': 'e.g. (555) 555-5555'
+            }),
+            'emailAddress': forms.TextInput(attrs={
+                'class': 'form-control',
+                'maxlength': '254',
+                'placeholder': 'Enter email address'
             }),
         }
         labels = {
@@ -55,17 +62,16 @@ class WebsiteContentForm(forms.ModelForm):
             'nameTitle': 'Name/Title',
             'aboutMeDescription': 'About Me Description',
             'officeLocation': 'Office Location',
-            'stepParentAdoptionDescription': 'Step-Parent Adoption',
-            'adultAdoptionDescription': 'Adult Adoption',
-            'guardianshipDescription': 'Guardianship',
-            'guardianshipToAdoptionDescription': 'Guardianship to Adoption',
-            'independentAdoptionDescription': 'Independent Adoption',
+            'phoneNumber': 'Phone Number',
+            'emailAddress': 'Email Address',
             'footerDescription': 'Footer Description',
         }
         help_texts = {
             'frontPageHeader': 'Displayed as the main headline on the homepage (max 140 characters)',
             'frontPageDescription': 'Displayed in the green banner below the hero image',
-            'officeLocation': 'Address displayed on the Contact page',
+            'officeLocation': 'Address displayed on the Contact page (max 200 characters)',
+            'phoneNumber': 'Phone number displayed on the Contact page (max 20 characters)',
+            'emailAddress': 'Email address displayed on the Contact page',
             'footerDescription': 'Displayed in the website footer across all pages',
         }
 
@@ -126,6 +132,58 @@ FAQFormSet = modelformset_factory(
     FAQItem,
     form=FAQItemForm,
     formset=BaseFAQFormSet,
+    can_delete=True,
+    extra=0,
+)
+
+
+class PracticeAreaItemForm(forms.ModelForm):
+    class Meta:
+        model = PracticeAreaItem
+        fields = ["title", "description", "is_active"]
+        widgets = {
+            "title": forms.TextInput(
+                attrs={"class": "form-control", "maxlength": "255", "placeholder": "Enter practice area title"}
+            ),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["title"].required = False
+        self.fields["description"].required = False
+        self.fields["is_active"].required = False
+
+
+class BasePracticeAreaFormSet(forms.BaseModelFormSet):
+    def clean(self):
+        super().clean()
+        if any(self.errors):
+            return
+
+        for form in self.forms:
+            cleaned = getattr(form, "cleaned_data", None)
+            if not cleaned:
+                continue
+            if cleaned.get("DELETE"):
+                continue
+
+            title = (cleaned.get("title") or "").strip()
+            description = (cleaned.get("description") or "").strip()
+            has_content = bool(title or description)
+
+            if not has_content:
+                continue
+
+            if not title:
+                form.add_error("title", "Title is required when a description is provided.")
+            if not description:
+                form.add_error("description", "Description is required when a title is provided.")
+
+
+PracticeAreaFormSet = modelformset_factory(
+    PracticeAreaItem,
+    form=PracticeAreaItemForm,
+    formset=BasePracticeAreaFormSet,
     can_delete=True,
     extra=0,
 )
