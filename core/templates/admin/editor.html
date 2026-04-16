@@ -170,7 +170,8 @@
     margin-bottom: 40px;
 }
 
-.faq-row {
+.faq-row,
+.pa-row {
     border: 1px solid #cfdedb;
     border-radius: 10px;
     padding: 16px;
@@ -178,16 +179,19 @@
     background: #f9fcfb;
 }
 
-.faq-row .form-check {
+.faq-row .form-check,
+.pa-row .form-check {
     margin-top: 8px;
 }
 
-.faq-row-marked-deleted {
+.faq-row-marked-deleted,
+.pa-row-marked-deleted {
     display: none !important;
 }
 
 /* Match admin header nav (Logout / pill buttons): see partials/admin_navbar.html */
-#add-faq-entry-btn {
+#add-faq-entry-btn,
+#add-pa-entry-btn {
     background-color: #2d7a73;
     border: none;
     color: #fff;
@@ -197,11 +201,14 @@
     transition: background-color 0.3s ease;
 }
 #add-faq-entry-btn:hover,
-#add-faq-entry-btn:focus {
+#add-faq-entry-btn:focus,
+#add-pa-entry-btn:hover,
+#add-pa-entry-btn:focus {
     background-color: #24665f;
     color: #fff;
 }
-#add-faq-entry-btn:focus {
+#add-faq-entry-btn:focus,
+#add-pa-entry-btn:focus {
     box-shadow: 0 0 0 2px rgba(45, 122, 115, 0.35);
 }
 
@@ -246,6 +253,7 @@
     <form method="POST" id="editor-form">
         {% csrf_token %}
         {{ faq_formset.management_form }}
+        {{ pa_formset.management_form }}
 
         <!-- Include CKEditor media (JS/CSS) -->
         {{ form.media }}
@@ -337,6 +345,21 @@
                             {% endif %}
                         </div>
 
+                    </div>
+                </div>
+            </div>
+
+            <!-- Contact Page Section -->
+            <div class="accordion-item">
+                <h2 class="accordion-header" id="headingContact">
+                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+                            data-bs-target="#collapseContact" aria-expanded="false" aria-controls="collapseContact">
+                        Contact Page
+                    </button>
+                </h2>
+                <div id="collapseContact" class="accordion-collapse collapse"
+                     aria-labelledby="headingContact" data-bs-parent="#editorAccordion">
+                    <div class="accordion-body">
                         <div class="form-group">
                             <label for="{{ form.officeLocation.id_for_label }}">
                                 {{ form.officeLocation.label }}
@@ -354,6 +377,39 @@
                                 <small class="form-text">{{ form.officeLocation.help_text }}</small>
                             {% endif %}
                         </div>
+
+                        <div class="form-group">
+                            <label for="{{ form.phoneNumber.id_for_label }}">
+                                {{ form.phoneNumber.label }}
+                            </label>
+                            {{ form.phoneNumber }}
+                            <div class="char-counter" data-max="20" data-input="{{ form.phoneNumber.id_for_label }}">
+                                <span class="current">0</span>/20 characters
+                            </div>
+                            {% if form.phoneNumber.errors %}
+                                <div class="invalid-feedback d-block">
+                                    {{ form.phoneNumber.errors|join:", " }}
+                                </div>
+                            {% endif %}
+                            {% if form.phoneNumber.help_text %}
+                                <small class="form-text">{{ form.phoneNumber.help_text }}</small>
+                            {% endif %}
+                        </div>
+
+                        <div class="form-group">
+                            <label for="{{ form.emailAddress.id_for_label }}">
+                                {{ form.emailAddress.label }}
+                            </label>
+                            {{ form.emailAddress }}
+                            {% if form.emailAddress.errors %}
+                                <div class="invalid-feedback d-block">
+                                    {{ form.emailAddress.errors|join:", " }}
+                                </div>
+                            {% endif %}
+                            {% if form.emailAddress.help_text %}
+                                <small class="form-text">{{ form.emailAddress.help_text }}</small>
+                            {% endif %}
+                        </div>
                     </div>
                 </div>
             </div>
@@ -369,65 +425,87 @@
                 <div id="collapsePractice" class="accordion-collapse collapse"
                      aria-labelledby="headingPractice" data-bs-parent="#editorAccordion">
                     <div class="accordion-body">
-                        <div class="form-group">
-                            <label for="{{ form.stepParentAdoptionDescription.id_for_label }}">
-                                {{ form.stepParentAdoptionDescription.label }}
-                            </label>
-                            {{ form.stepParentAdoptionDescription }}
-                            {% if form.stepParentAdoptionDescription.errors %}
-                                <div class="invalid-feedback d-block">
-                                    {{ form.stepParentAdoptionDescription.errors|join:", " }}
+                        {% if pa_formset.non_form_errors %}
+                            <div class="invalid-feedback d-block mb-3">
+                                {{ pa_formset.non_form_errors|join:", " }}
+                            </div>
+                        {% endif %}
+
+                        <div id="pa-rows-container">
+                        {% for pa_form in pa_formset %}
+                            <div class="pa-row">
+                                {{ pa_form.id }}
+                                <div class="form-group">
+                                    <label for="{{ pa_form.title.id_for_label }}">Title</label>
+                                    {{ pa_form.title }}
+                                    {% if pa_form.title.errors %}
+                                        <div class="invalid-feedback d-block">
+                                            {{ pa_form.title.errors|join:", " }}
+                                        </div>
+                                    {% endif %}
                                 </div>
-                            {% endif %}
+
+                                <div class="form-group">
+                                    <label for="{{ pa_form.description.id_for_label }}">Description</label>
+                                    {{ pa_form.description }}
+                                    {% if pa_form.description.errors %}
+                                        <div class="invalid-feedback d-block">
+                                            {{ pa_form.description.errors|join:", " }}
+                                        </div>
+                                    {% endif %}
+                                </div>
+
+                                <div class="form-check">
+                                    {{ pa_form.is_active }}
+                                    <label class="form-check-label" for="{{ pa_form.is_active.id_for_label }}">
+                                        Active (show on site)
+                                    </label>
+                                </div>
+
+                                <div class="visually-hidden" aria-hidden="true">
+                                    {{ pa_form.DELETE }}
+                                </div>
+                                <div class="mt-2">
+                                    <button type="button" class="btn btn-outline-danger btn-sm pa-delete-saved-btn" aria-label="Delete this practice area">
+                                        Delete
+                                    </button>
+                                </div>
+                            </div>
+                        {% endfor %}
                         </div>
 
-                        <div class="form-group">
-                            <label for="{{ form.adultAdoptionDescription.id_for_label }}">
-                                {{ form.adultAdoptionDescription.label }}
-                            </label>
-                            {{ form.adultAdoptionDescription }}
-                            {% if form.adultAdoptionDescription.errors %}
-                                <div class="invalid-feedback d-block">
-                                    {{ form.adultAdoptionDescription.errors|join:", " }}
-                                </div>
-                            {% endif %}
-                        </div>
+                        <button type="button" class="btn mt-3 mb-2" id="add-pa-entry-btn">
+                            Add new practice area
+                        </button>
 
-                        <div class="form-group">
-                            <label for="{{ form.guardianshipDescription.id_for_label }}">
-                                {{ form.guardianshipDescription.label }}
-                            </label>
-                            {{ form.guardianshipDescription }}
-                            {% if form.guardianshipDescription.errors %}
-                                <div class="invalid-feedback d-block">
-                                    {{ form.guardianshipDescription.errors|join:", " }}
+                        <template id="pa-empty-row-template">
+                            <div class="pa-row" data-dynamic-pa-row>
+                                {{ pa_formset.empty_form.id }}
+                                <div class="form-group">
+                                    <label for="{{ pa_formset.empty_form.title.id_for_label }}">Title</label>
+                                    {{ pa_formset.empty_form.title }}
                                 </div>
-                            {% endif %}
-                        </div>
+                                <div class="form-group">
+                                    <label for="{{ pa_formset.empty_form.description.id_for_label }}">Description</label>
+                                    {{ pa_formset.empty_form.description }}
+                                </div>
+                                <div class="form-check">
+                                    {{ pa_formset.empty_form.is_active }}
+                                    <label class="form-check-label" for="{{ pa_formset.empty_form.is_active.id_for_label }}">
+                                        Active (show on site)
+                                    </label>
+                                </div>
+                                <div class="visually-hidden" aria-hidden="true">
+                                    {{ pa_formset.empty_form.DELETE }}
+                                </div>
+                                <div class="mt-2">
+                                    <button type="button" class="btn btn-outline-secondary btn-sm pa-remove-new-btn" aria-label="Remove this unsaved practice area">
+                                        Remove
+                                    </button>
+                                </div>
+                            </div>
+                        </template>
 
-                        <div class="form-group">
-                            <label for="{{ form.guardianshipToAdoptionDescription.id_for_label }}">
-                                {{ form.guardianshipToAdoptionDescription.label }}
-                            </label>
-                            {{ form.guardianshipToAdoptionDescription }}
-                            {% if form.guardianshipToAdoptionDescription.errors %}
-                                <div class="invalid-feedback d-block">
-                                    {{ form.guardianshipToAdoptionDescription.errors|join:", " }}
-                                </div>
-                            {% endif %}
-                        </div>
-
-                        <div class="form-group">
-                            <label for="{{ form.independentAdoptionDescription.id_for_label }}">
-                                {{ form.independentAdoptionDescription.label }}
-                            </label>
-                            {{ form.independentAdoptionDescription }}
-                            {% if form.independentAdoptionDescription.errors %}
-                                <div class="invalid-feedback d-block">
-                                    {{ form.independentAdoptionDescription.errors|join:", " }}
-                                </div>
-                            {% endif %}
-                        </div>
                     </div>
                 </div>
             </div>
@@ -657,6 +735,83 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         }
 
+        // --- Practice Areas ---
+        const addPaBtn = document.getElementById("add-pa-entry-btn");
+        const paRowsContainer = document.getElementById("pa-rows-container");
+        const paEmptyTpl = document.getElementById("pa-empty-row-template");
+        const paTotalFormsInput = document.getElementById("id_pa-TOTAL_FORMS");
+
+        function bindPaRowDirty(row) {
+            row.querySelectorAll("input, select, textarea").forEach(function(el) {
+                el.addEventListener("input", function() { isDirty = true; });
+                el.addEventListener("change", function() { isDirty = true; });
+            });
+        }
+
+        function wirePaRowCkDirty(row) {
+            row.querySelectorAll(".ck-editor__editable").forEach(function(editor) {
+                editor.addEventListener("input", function() { isDirty = true; });
+            });
+        }
+
+        if (addPaBtn && paRowsContainer && paEmptyTpl && paTotalFormsInput) {
+            addPaBtn.addEventListener("click", function() {
+                const idx = parseInt(paTotalFormsInput.value, 10);
+                if (isNaN(idx)) return;
+                const html = paEmptyTpl.innerHTML.replace(/__prefix__/g, String(idx));
+                const wrap = document.createElement("div");
+                wrap.innerHTML = html.trim();
+                const row = wrap.firstElementChild;
+                if (!row) return;
+                paRowsContainer.appendChild(row);
+                paTotalFormsInput.value = String(idx + 1);
+                bindPaRowDirty(row);
+                isDirty = true;
+                const collapsePractice = document.getElementById("collapsePractice");
+                if (collapsePractice && !collapsePractice.classList.contains("show")) {
+                    collapsePractice.classList.add("show");
+                    const hdrBtn = document.querySelector('[data-bs-target="#collapsePractice"]');
+                    if (hdrBtn) {
+                        hdrBtn.classList.remove("collapsed");
+                        hdrBtn.setAttribute("aria-expanded", "true");
+                    }
+                }
+                setTimeout(function() { wirePaRowCkDirty(row); }, 500);
+                setTimeout(function() { wirePaRowCkDirty(row); }, 1500);
+            });
+        }
+
+        if (paRowsContainer && paTotalFormsInput) {
+            paRowsContainer.addEventListener("click", function(e) {
+                var delBtn = e.target.closest(".pa-delete-saved-btn");
+                if (delBtn) {
+                    e.preventDefault();
+                    var row = delBtn.closest(".pa-row");
+                    if (!row) return;
+                    var deleteInput = row.querySelector("input[name$='-DELETE']");
+                    if (deleteInput) {
+                        deleteInput.checked = true;
+                        row.classList.add("pa-row-marked-deleted");
+                    }
+                    isDirty = true;
+                    return;
+                }
+                var remBtn = e.target.closest(".pa-remove-new-btn");
+                if (remBtn) {
+                    e.preventDefault();
+                    var rowNew = remBtn.closest(".pa-row");
+                    if (!rowNew || !rowNew.hasAttribute("data-dynamic-pa-row")) return;
+                    if (rowNew !== paRowsContainer.lastElementChild) {
+                        alert("Remove the newest practice area rows from the bottom first.");
+                        return;
+                    }
+                    rowNew.remove();
+                    paTotalFormsInput.value = String(parseInt(paTotalFormsInput.value, 10) - 1);
+                    isDirty = true;
+                }
+            });
+        }
+
         if (addFaqBtn && faqRowsContainer && faqEmptyTpl && totalFormsInput) {
             addFaqBtn.addEventListener("click", function() {
                 const idx = parseInt(totalFormsInput.value, 10);
@@ -794,6 +949,54 @@ document.addEventListener('DOMContentLoaded', function() {
                         }
                     }
                 }
+            });
+
+            // Practice area row validation
+            form.querySelectorAll(".pa-row").forEach(function(row) {
+                if (row.classList.contains("pa-row-marked-deleted")) return;
+
+                const titleInput = row.querySelector("input[name$='-title']");
+                const deleteInput = row.querySelector("input[name$='-DELETE']");
+
+                const title = titleInput ? titleInput.value.trim() : "";
+                const markedForDelete = deleteInput ? deleteInput.checked : false;
+                const descEditor = row.querySelector(".ck-editor__editable");
+                let descText = "";
+                if (descEditor) {
+                    descText = descEditor.innerText.trim();
+                } else {
+                    const ta = row.querySelector("textarea[name*='-description']");
+                    if (ta) descText = ta.value.replace(/<[^>]+>/g, "").trim();
+                }
+                const hasDescContent = !!descText;
+
+                if (markedForDelete) return;
+
+                row.querySelectorAll(".pa-invalid-feedback").forEach(el => el.remove());
+                row.querySelectorAll("input").forEach(el => el.classList.remove("is-invalid"));
+
+                if (!title && !hasDescContent) return;
+
+                if (!title && titleInput) {
+                    hasError = true;
+                    titleInput.classList.add("is-invalid");
+                    const errDiv = document.createElement("div");
+                    errDiv.className = "invalid-feedback d-block pa-invalid-feedback";
+                    errDiv.textContent = "Title is required when a description is provided.";
+                    titleInput.insertAdjacentElement("afterend", errDiv);
+                }
+
+                if (!hasDescContent && descEditor) {
+                    hasError = true;
+                    const descGroup = descEditor.closest(".form-group");
+                    if (descGroup) {
+                        const errDiv = document.createElement("div");
+                        errDiv.className = "invalid-feedback d-block pa-invalid-feedback";
+                        errDiv.textContent = "Description is required when a title is provided.";
+                        descGroup.insertAdjacentElement("beforeend", errDiv);
+                    }
+                }
+
             });
 
             // FAQ row validation rules

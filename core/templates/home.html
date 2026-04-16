@@ -23,21 +23,11 @@
 <!-- Image Buttons to Practice Page -->
  <section>
   <div class="button-grid">
-      <a href="practice-areas" class="image-btn" style="background-image: url('{% static 'images/step-parent.png' %}');" alt="Step-Parent Adoption">
-          <span class="btn-text">Step-Parent Adoption</span>
+      {% for area in pa_buttons %}
+      <a href="practice-areas" class="image-btn" style="background-image: url('{% static area.image_static_path %}');" alt="{{ area.title }}">
+          <span class="btn-text">{{ area.title }}</span>
       </a>
-      <a href="practice-areas" class="image-btn" style="background-image: url('{% static 'images/adult.png' %}');" alt="Adult Adoption">
-          <span class="btn-text">Adult Adoption</span>
-      </a>
-      <a href="practice-areas" class="image-btn" style="background-image: url('{% static 'images/guardianship.png' %}');" alt="Guardianship">
-          <span class="btn-text">Guardianship</span>
-      </a>
-      <a href="practice-areas" class="image-btn" style="background-image: url('{% static 'images/guardianship_to_adoption.png' %}');" alt="Guardianship to Adoption">
-          <span class="btn-text">Guardianship to Adoption</span>
-      </a>
-      <a href="practice-areas" class="image-btn" style="background-image: url('{% static 'images/independent.png' %}');" alt="Independent Adoption">
-          <span class="btn-text">Independent Adoption</span>
-      </a>
+      {% endfor %}
   </div>
 </section>
 

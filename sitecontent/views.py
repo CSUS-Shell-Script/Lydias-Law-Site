@@ -1,8 +1,18 @@
 from django.shortcuts import render
-from .models import WebsiteContent, FAQItem
+from .models import WebsiteContent, FAQItem, PracticeAreaItem
 from django.contrib.auth import get_user_model
 from django.http import HttpResponseServerError
 from django.conf import settings
+
+# Increment when you add more practice_area_N.png images to core/static/images.
+# Must always equal the total number of practice area images available.
+MAX_PA_IMAGES = 9
+
+def _annotate_pa_images(queryset):
+    items = list(queryset)
+    for i, area in enumerate(items):
+        area.image_static_path = f"images/practice_area_{min(i + 1, MAX_PA_IMAGES)}.png"
+    return items
 
 
 # Create your views here.
@@ -25,14 +35,23 @@ def home(request):
 
         role = request.GET.get("role", "guest") # Check URLs in core.
         faqs = FAQItem.objects.filter(is_active=True).order_by("display_order", "id")
+        practice_areas = _annotate_pa_images(PracticeAreaItem.objects.filter(is_active=True))
+
+        # Home page buttons: 1 minimum, 5 maximum
+        from types import SimpleNamespace
+        pa_buttons = practice_areas[:5] if practice_areas else [
+            SimpleNamespace(image_static_path="images/practice_area_1.png", title="Practice Areas")
+        ]
 
         # Render the normal about page
         return render(request, 'home.html', {
             "role": role,
             "BUILDING_ADDRESS": settings.BUILDING_ADDRESS,
-            "GOOGLE_MAPS_API_KEY": settings.GOOGLE_MAPS_API_KEY,            
+            "GOOGLE_MAPS_API_KEY": settings.GOOGLE_MAPS_API_KEY,
             'content': content,
             "faqs": faqs,
+            "practice_areas": practice_areas,
+            "pa_buttons": pa_buttons,
         })
 
     except Exception as e:
@@ -84,41 +103,35 @@ def about(request, client=False):
 # Contact Page request
 def contact(request, client=False):
     try:
-        User = get_user_model()
-
         # Attempt to get the latest content from WebsiteContent table
         location = WebsiteContent.objects.order_by('-versionNumber').first()
 
-        # Attempts to get Lydia's information from User table
-        lydia = User.objects.filter(role=User.Role.ADMIN).first()
-
-        # Fallback if no location exists
+        # Fallback if no content record exists yet
         if not location:
             location = WebsiteContent(
-                officeLocation="No Content Available"
+                officeLocation="No Content Available",
+                phoneNumber="No Content Available",
+                emailAddress="No Content Available",
             )
-
-        # Fallback if no email exists
-        if lydia and not lydia.email:
-            lydia.email = "No Content Available"
-
-        # Fallback if no phone number exists
-        if lydia and not lydia.phone_number:
-            lydia.phone_number = "No Content Available"
+        else:
+            if not location.officeLocation:
+                location.officeLocation = "No Content Available"
+            if not location.phoneNumber:
+                location.phoneNumber = "No Content Available"
+            if not location.emailAddress:
+                location.emailAddress = "No Content Available"
 
         # Check which page to render
         page = 'contact.html'
         if client:
             page = 'client/contact.html'
-        content = location
 
         # Render contact page
         return render(request, page, {
             'location': location,
-            'lydia': lydia,
             "BUILDING_ADDRESS": settings.BUILDING_ADDRESS,
             "GOOGLE_MAPS_API_KEY": settings.GOOGLE_MAPS_API_KEY,
-            'content': content,            
+            'content': location,
         })
     
     except Exception as e:
