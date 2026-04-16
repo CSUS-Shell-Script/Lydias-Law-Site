@@ -45,6 +45,9 @@ STRIPE_PUBLISHABLE_KEY = env("STRIPE_PUBLISHABLE_KEY")
 # CSRF_COOKIE_SECURE = True
 # SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
+# Cloudflare Turnstile CAPTCHA Keys
+TURNSTILE_SITE_KEY = os.getenv("TURNSTILE_SITE_KEY", "")
+TURNSTILE_SECRET_KEY = os.getenv("TURNSTILE_SECRET_KEY", "")
 # Uncomment below if using ngrok to test webhook
 
 # if DEBUG:
@@ -174,14 +177,40 @@ ACCOUNT_USER_MODEL_USERNAME_FIELD = None
 ACCOUNT_AUTHENTICATION_METHOD = 'email'
 
 
-# Email Verification Email
+# Outbound email (django-allauth, password reset, etc.)
+_host_email = env("HOST_EMAIL", default="")
+POSTMARK_SERVER_TOKEN = env("POSTMARK_SERVER_TOKEN", default="").strip()
+
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
-EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
-EMAIL_HOST_USER = os.getenv("HOST_EMAIL")  # Noreply email goes here.
-EMAIL_HOST_PASSWORD = os.getenv("HOST_EMAIL_PASSWORD")  # the 16-char App Password for noreply email (requires F2A).
-DEFAULT_FROM_EMAIL = f"Lydia's Law <{EMAIL_HOST_USER}>" # Email must be changed to noreply email.
+
+if POSTMARK_SERVER_TOKEN:
+    # Staging/production: Postmark SMTP (server token = username and password).
+    EMAIL_HOST = "smtp.postmarkapp.com"
+    EMAIL_HOST_USER = POSTMARK_SERVER_TOKEN
+    EMAIL_HOST_PASSWORD = POSTMARK_SERVER_TOKEN
+    DEFAULT_FROM_EMAIL = env(
+        "DEFAULT_FROM_EMAIL",
+        default=(
+            f"Lydia's Law <{_host_email}>"
+            if _host_email
+            else "Lydia's Law <noreply@localhost>"
+        ),
+    )
+else:
+    # Local/dev: Gmail SMTP (app password).
+    EMAIL_HOST = "smtp.gmail.com"
+    EMAIL_HOST_USER = _host_email
+    EMAIL_HOST_PASSWORD = env("HOST_EMAIL_PASSWORD", default="")
+    DEFAULT_FROM_EMAIL = env(
+        "DEFAULT_FROM_EMAIL",
+        default=(
+            f"Lydia's Law <{EMAIL_HOST_USER}>"
+            if EMAIL_HOST_USER
+            else "Lydia's Law <webmaster@localhost>"
+        ),
+    )
 
 WSGI_APPLICATION = 'Lydias_Law_Site.wsgi.application'
 
@@ -220,6 +249,7 @@ if "test" in sys.argv:
             "NAME": ":memory:",
         }
     }
+    EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
 
 # Password validation
 # https://docs.djangoproject.com/en/5.0/ref/settings/#auth-password-validators

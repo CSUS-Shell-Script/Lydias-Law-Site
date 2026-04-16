@@ -73,10 +73,15 @@
         min-width: 350px;
         background-color: #8ba8a5;
         border-radius: 15px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        min-height: 550px;
+        min-height: 650px;
+        overflow: hidden;
+    }
+
+    .calendar-placeholder iframe {
+        width: 100%;
+        height: 100%;
+        border: none;
+        display: block;
     }
 
     .calendar-placeholder-text {
@@ -245,7 +250,14 @@
         }
 
         .calendar-placeholder {
-            min-height: 300px;
+            min-width: 0;
+            width: 100%;
+            min-height: 650px;
+        }
+
+        .contact-form-container {
+            min-width: 0;
+            width: 100%;
         }
     }
 </style>
@@ -282,36 +294,51 @@
     <div class="schedule-container">
         <div class="schedule-content">
             <!-- calendar placeholder -->
-            <div class="calendar-placeholder" style="min-height: 100vh;">
-                <script type="text/javascript">
-                    Calendly.initInlineWidget({
-                        "url": 'https://calendly.com/attorneylydia/30min?primary_color=2d7a73',
-                        "parentElement": document.getElementById('calendar-placeholder'),
-                        "prefill": {},
-                        "utm": {}
-                    });
-                </script>
-            </div>
+            <div class="calendar-placeholder" id="calendar-placeholder"></div>
+            <script type="text/javascript">
+                Calendly.initInlineWidget({
+                    "url": 'https://calendly.com/attorneylydia/30min?primary_color=2d7a73',
+                    "parentElement": document.getElementById('calendar-placeholder'),
+                    "prefill": {},
+                    "utm": {}
+                });
+            </script>
         </div>
     </div>
 </div>
 
-<!-- Redirect users to a confirmation page -->
-<!-- Listens for an event sent by Calendly to indicate an appointment was scheduled-->
+<!-- calendly event listeners -->
 <script>
     window.addEventListener("message", function(e){
-        if (e.data.event && e.data.event === "calendly.event_scheduled"){
+        if (!e.data.event) return;
+
+        // auto-resize the container to Calendly's content height (eliminates internal scrollbar)
+        if (e.data.event === "calendly.page_height") {
+            var height = e.data.payload.height;
+            var placeholder = document.getElementById('calendar-placeholder');
+            if (placeholder) {
+                placeholder.style.minHeight = height;
+                var iframe = placeholder.querySelector('iframe');
+                if (iframe) {
+                    iframe.style.height = height;
+                    iframe.style.minHeight = height;
+                }
+            }
+        }
+
+        // redirect after booking
+        if (e.data.event === "calendly.event_scheduled"){
             window.location.href = "{% url 'appointment_confirmation' %}"
         }
-    })
+    });
 </script>
 
 <!--Google Map-->
-  <div class="d-flex justify-content-center my-4">
+  <div class="d-flex justify-content-center my-4" style="padding: 0 1rem;">
     <iframe
-        width="600"
+        width="100%"
         height="450"
-        style="border:0"
+        style="border:0; max-width: 600px;"
         loading="lazy"
         allowfullscreen
         referrerpolicy="no-referrer-when-downgrade"
