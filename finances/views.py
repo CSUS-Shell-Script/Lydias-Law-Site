@@ -12,7 +12,8 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 #from users.views import is_admin_user
 from core.decorators import superuser_required
-
+from decimal import Decimal
+from django.db.models import Q
 import stripe
 from users.models import User
 from .models import Invoice, StripeWebhookEvent, Payment
@@ -320,6 +321,58 @@ def admin_transactions(request):
     # Use select_related to get the user email in one database hit
     invoices = Invoice.objects.select_related("user").all().order_by("-created_at")
 
+    # Search by name
+    search_query = request.GET.get('search', '').strip()
+    if search_query:
+        words = search_query.split()  # split multi-word search
+        search_filter = Q()
+        for word in words:
+            search_filter |= (
+                Q(user__first_name__icontains=word) |
+                Q(user__last_name__icontains=word) |
+                Q(user__email__icontains=word)
+            )
+        invoices = invoices.filter(search_filter)
+    
+    # Filter by status
+    status_filter = request.GET.get('status', '')
+    if status_filter and status_filter != 'all':
+        invoices = invoices.filter(status__iexact=status_filter)
+    
+    # Filter by amount (min and/or max)
+    min_amount = request.GET.get('min_amount', '').strip()
+    max_amount = request.GET.get('max_amount', '').strip()
+    
+    if min_amount:
+        try:
+            min_cents = Decimal(min_amount) * 100
+            invoices = invoices.filter(amount__gte=min_cents)
+        except (TypeError, ValueError):
+            pass
+    
+    if max_amount:
+        try:
+            max_cents = Decimal(max_amount) * 100
+            invoices = invoices.filter(amount__lte=max_cents)
+        except (TypeError, ValueError):
+            pass
+    
+    # Sorting
+    sort = request.GET.get('sort', 'newest')
+    if sort == 'newest':
+        invoices = invoices.order_by('-created_at')
+    elif sort == 'oldest':
+        invoices = invoices.order_by('created_at')
+    elif sort == 'amount_high':
+        invoices = invoices.order_by('-amount')
+    elif sort == 'amount_low':
+        invoices = invoices.order_by('amount')
+    elif sort == 'invoice_asc':
+        invoices = invoices.order_by('id')
+    elif sort == 'invoice_desc':
+        invoices = invoices.order_by('-id')
+
+
     # per_page: only 20 (default) or 40 are accepted; anything else falls back to 20
     try:
         per_page = int(request.GET.get("per_page", 20))
@@ -339,9 +392,16 @@ def admin_transactions(request):
         # Ensure status is uppercase for template checks
         inv.display_status = str(inv.status).upper()
 
+    
+
     return render(request, "admin/transactions.html", {
         "page_obj": page_obj,
         "per_page": per_page,
+        "search_query": search_query,
+        "status_filter": status_filter,
+        "min_amount": min_amount,
+        "max_amount": max_amount,
+        "sort": sort,
     })
 
 @superuser_required
