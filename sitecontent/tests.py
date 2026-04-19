@@ -1,6 +1,6 @@
 from django.test import TestCase, RequestFactory
 from django.urls import reverse
-from sitecontent.models import FAQItem, WebsiteContent
+from sitecontent.models import FAQItem, WebsiteContent, PracticeAreaItem
 from sitecontent.context_processors import footer_content
 
 
@@ -13,28 +13,42 @@ class WebsiteContentModelTests(TestCase):
         content = WebsiteContent.objects.create(
             frontPageHeader="Welcome Header",
             frontPageDescription="<p>Front page description</p>",
-            stepParentAdoptionDescription="<p>Step-parent</p>",
-            adultAdoptionDescription="<p>Adult</p>",
-            guardianshipDescription="<p>Guardianship</p>",
-            guardianshipToAdoptionDescription="<p>G to A</p>",
-            independentAdoptionDescription="<p>Independent</p>",
             nameTitle="Lydia A. Suprun",
             aboutMeDescription="<p>About me</p>",
             officeLocation="123 Main St",
+            phoneNumber="555-123-4567",
+            emailAddress="welcome@example.com",
             footerDescription="<p>Footer text</p>",
         )
+        PracticeAreaItem.objects.all().delete()
+        practice_areas = [
+            ("Step-Parent Adoption", "<p>Step-parent</p>"),
+            ("Adult Adoption", "<p>Adult</p>"),
+            ("Guardianship", "<p>Guardianship</p>"),
+            ("Guardianship to Adoption", "<p>G to A</p>"),
+            ("Independent Adoption", "<p>Independent</p>"),
+        ]
+        for order, (title, description) in enumerate(practice_areas, start=1):
+            PracticeAreaItem.objects.create(
+                title=title,
+                description=description,
+                display_order=order,
+                is_active=True,
+            )
         content.refresh_from_db()
         self.assertEqual(content.frontPageHeader, "Welcome Header")
         self.assertEqual(content.frontPageDescription, "<p>Front page description</p>")
         self.assertEqual(content.nameTitle, "Lydia A. Suprun")
         self.assertEqual(content.aboutMeDescription, "<p>About me</p>")
         self.assertEqual(content.officeLocation, "123 Main St")
+        self.assertEqual(content.phoneNumber, "555-123-4567")
+        self.assertEqual(content.emailAddress, "welcome@example.com")
         self.assertEqual(content.footerDescription, "<p>Footer text</p>")
-        self.assertEqual(content.stepParentAdoptionDescription, "<p>Step-parent</p>")
-        self.assertEqual(content.adultAdoptionDescription, "<p>Adult</p>")
-        self.assertEqual(content.guardianshipDescription, "<p>Guardianship</p>")
-        self.assertEqual(content.guardianshipToAdoptionDescription, "<p>G to A</p>")
-        self.assertEqual(content.independentAdoptionDescription, "<p>Independent</p>")
+        self.assertEqual(PracticeAreaItem.objects.count(), 5)
+        for title, description in practice_areas:
+            self.assertTrue(
+                PracticeAreaItem.objects.filter(title=title, description=description, is_active=True).exists()
+            )
 
     # Test: versionNumber auto-increments for each new row
     def test_version_number_auto_increments(self):
