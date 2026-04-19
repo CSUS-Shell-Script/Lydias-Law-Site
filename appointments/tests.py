@@ -244,11 +244,10 @@ class AdminSchedulingTests(TestCase):
 
         self.client.login(email="admin@test.com", password="testpass123")
 
-        self.schedule_url = reverse("admin_schedule")
         self.dashboard_url = reverse("admin_dashboard")
 
     def test_admin_can_access_scheduling_page(self):
-        response = self.client.get(self.schedule_url)
+        response = self.client.get(self.dashboard_url)
         self.assertEqual(response.status_code, 200)
 
     def test_admin_can_create_appointment(self):

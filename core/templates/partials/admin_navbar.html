@@ -18,10 +18,6 @@
              href="{% url 'admin_dashboard' %}" style="font-weight: 500;">Dashboard</a>
         </li>
         <li class="nav-item">
-          <a class="nav-link text-dark px-4 py-2 rounded-pill {% if request.resolver_match.url_name == 'admin_schedule' %}bg-white{% else %}text-white{% endif %}"
-             href="{% url 'admin_schedule' %}" style="font-weight: 500;">Schedule</a>
-        </li>
-        <li class="nav-item">
           <a class="nav-link text-dark px-4 py-2 rounded-pill {% if request.resolver_match.url_name == 'admin_appointments' or request.resolver_match.url_name == 'admin_appointment_detail' %}bg-white{% else %}text-white{% endif %}"
              href="{% url 'admin_appointments' %}" style="font-weight: 500;">Appointments</a>
         </li>

@@ -51,65 +51,70 @@
 </div>
 
 <!-- Layout -->
-<div class="container-fluid">
-  <div class="row g-4">
+<div class="d-flex justify-content-center align-items-center"></div>
+  <div class="container-fluid">
+    <div class="row g-4 justify-content-center mb-5">
 
-    <!-- Calendar API -->
-    <div class="col-12 col-lg-7">
-      <div class="panel-card shadow p-4" style="background-color:#C3D5D6; min-height: 28rem;">
-        <strong>Calendar API</strong> coming soon…
-      </div>
-    </div>
-
-    <!-- Upcoming Appointments -->
-    <div class="col-12 col-lg-5">
-      <section class="panel-card shadow appts-bg" role="region" aria-label="Upcoming appointments">
-        <div class="appts-content d-flex flex-column" style="min-height: 32rem; background-color: #115a5c98;" >
-
-          <!-- Header -->
-          <div class="px-3 py-2" style="background: rgba(0,0,0,0.08);">
-            <h5 class="m-0 text-white">Upcoming Appointments</h5>
-            <small class="text-light">Next 3</small>
-          </div>
-
-          <!-- List -->
-          <div class="scroll-y px-3 py-2" style="max-height: 28rem;">
-            {% if upcoming_appts %}
-              <ul class="list-unstyled m-0">
-                {% for appt in upcoming_appts %}
-                  <li class="mb-3 p-2 shadow-sm appt-item">
-                    <div class="d-flex justify-content-between align-items-start">
-                      <div>
-                        <div class="fw-semibold">
-                          {{ appt.start_time|date:"D, M j, Y" }}
-                        </div>
-                        <div class="text-muted">
-                          {{ appt.start_time|date:"g:i A" }}
-                        </div>
-                        <div class="text-muted small">
-                          📍 <em>In Office – In Person</em>
-                        </div>
-                      </div>
-                      <span class="badge bg-primary">{{ appt.get_status_display }}</span>
-                    </div>
-
-                    {% if appt.comments %}
-                      <div class="mt-2 small text-muted">
-                        {{ appt.comments }}
-                      </div>
-                    {% endif %}
-                  </li>
-                {% endfor %}
-              </ul>
-            {% else %}
-              <p class="text-white-50 m-0">You have no upcoming appointments.</p>
-            {% endif %}
-          </div>
-
+      <!-- Calendar API -->
+      <div class="col-12 col-lg-6">
+        <div class="panel-card shadow p-4" style="background-color:#C3D5D6; min-height: 20rem;">
+          <!-- Calendly inline widget begin -->
+          <div class="calendly-inline-widget w-100" data-url="https://calendly.com/attorneylydia/30min?primary_color=2d7a73" data-resize="true"></div>
+          <script type="text/javascript" src="https://assets.calendly.com/assets/external/widget.js" async></script>
+          <!-- Calendly inline widget end -->
         </div>
-      </section>
-    </div>
+      </div>
 
+      <!-- Upcoming Appointments -->
+      <div class="col-12 col-lg-5">
+        <section class="panel-card shadow appts-bg" role="region" aria-label="Upcoming appointments">
+          <div class="appts-content d-flex flex-column" style="min-height: 32rem; background-color: #115a5c98;" >
+
+            <!-- Header -->
+            <div class="px-3 py-2" style="background: rgba(0,0,0,0.08);">
+              <h5 class="m-0 text-white">Upcoming Appointments</h5>
+              <small class="text-light">Next 3</small>
+            </div>
+
+            <!-- List -->
+            <div class="scroll-y px-3 py-2" style="max-height: 28rem;">
+              {% if upcoming_appts %}
+                <ul class="list-unstyled m-0">
+                  {% for appt in upcoming_appts %}
+                    <li class="mb-3 p-2 shadow-sm appt-item">
+                      <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                          <div class="fw-semibold">
+                            {{ appt.start_time|date:"D, M j, Y" }}
+                          </div>
+                          <div class="text-muted">
+                            {{ appt.start_time|date:"g:i A" }}
+                          </div>
+                          <div class="text-muted small">
+                            📍 <em>In Office – In Person</em>
+                          </div>
+                        </div>
+                        <span class="badge bg-primary">{{ appt.get_status_display }}</span>
+                      </div>
+
+                      {% if appt.comments %}
+                        <div class="mt-2 small text-muted">
+                          {{ appt.comments }}
+                        </div>
+                      {% endif %}
+                    </li>
+                  {% endfor %}
+                </ul>
+              {% else %}
+                <p class="text-white-50 m-0">You have no upcoming appointments.</p>
+              {% endif %}
+            </div>
+
+          </div>
+        </section>
+      </div>
+
+    </div>
   </div>
 </div>
 {% endblock %}

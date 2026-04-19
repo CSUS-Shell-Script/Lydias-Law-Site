@@ -44,7 +44,6 @@ urlpatterns = [
     # admin panel pages (using 'administrator' to avoid conflict with django "admin" keyword)
     path("administrator/", users_admin_dashboard, name="admin_dashboard"),
     path("administrator/dashboard/", users_admin_dashboard, name="admin_dashboard"),
-    path("administrator/schedule/", views.admin_schedule, name="admin_schedule"),
     path("administrator/transactions/", finance_views.admin_transactions, name="admin_transactions"),
     path("administrator/clients/", views.admin_clients, name="admin_clients"),
     path("administrator/editor/", views.admin_editor, name="admin_editor"),
