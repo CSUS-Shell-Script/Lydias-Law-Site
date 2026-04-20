@@ -86,7 +86,8 @@ INSTALLED_APPS = [
     "appointments",
     "sitecontent",
     "finances",
-    "django_ckeditor_5"
+    "django_ckeditor_5",
+    "django.contrib.sitemaps"
 ]
 
 
