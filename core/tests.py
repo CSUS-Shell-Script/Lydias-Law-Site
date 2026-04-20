@@ -7,9 +7,8 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils import timezone
 
-from sitecontent.models import WebsiteContent
 from appointments.models import Appointments, Invitee
-from sitecontent.models import FAQItem, WebsiteContent
+from sitecontent.models import FAQItem, WebsiteContent, PracticeAreaItem
 from users.models import User
 from django.contrib.auth import get_user_model
 from finances.models import Invoice
@@ -29,17 +28,48 @@ class PublicPagesTestCase(TestCase):
 
         # Create website content (temporary databse)
         WebsiteContent.objects.create(
+            # Adjusting for name changes.
+            frontPageHeader="Home page heading",
+            frontPageDescription="Mission Statement",
+            nameTitle="Lydia A. Suprun",
+            aboutMeDescription="About Lydia A. Suprun",
+            officeLocation="123 Main St",
+            phoneNumber="5551234567",
+            emailAddress="info@example.com",
+            footerDescription="Footer text",
+        )
 
-            # Home page temporary database for test
-            frontPageHeader = "Home page heading",
-            frontPageDescription = "Mission Statement",
-
-            # Practice page temporary database for test
-            stepParentAdoptionDescription="Step-parent adoption description",
-            adultAdoptionDescription="Adult adoption description",
-            guardianshipDescription="Guardianship description",
-            guardianshipToAdoptionDescription="Guardianship to adoption description",
-            independentAdoptionDescription="Independent adoption description",
+        # Create practice area items for the public practice areas page
+        PracticeAreaItem.objects.all().delete()
+        PracticeAreaItem.objects.create(
+            title="Step-Parent Adoption",
+            description="<p>Step-parent</p>",
+            display_order=1,
+            is_active=True,
+        )
+        PracticeAreaItem.objects.create(
+            title="Adult Adoption",
+            description="<p>Adult</p>",
+            display_order=2,
+            is_active=True,
+        )
+        PracticeAreaItem.objects.create(
+            title="Guardianship",
+            description="<p>Guardianship</p>",
+            display_order=3,
+            is_active=True,
+        )
+        PracticeAreaItem.objects.create(
+            title="Guardianship to Adoption",
+            description="<p>G to A</p>",
+            display_order=4,
+            is_active=True,
+        )
+        PracticeAreaItem.objects.create(
+            title="Independent Adoption",
+            description="<p>Independent</p>",
+            display_order=5,
+            is_active=True,
         )
 
     # Django made client account
@@ -111,37 +141,43 @@ class PublicPagesTestCase(TestCase):
         response = self.client.get(reverse('payment'))
         self.assertEqual(response.status_code, 200)
 
-    # Test: Payment page POST requires invoice ID
-    def test_payment_page_post_requires_invoice_id(self):
+    # Test: Payment page POST requires invoice number
+    def test_payment_page_post_requires_invoice_number(self):
         response = self.client.post(reverse('payment'), {})
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("Incorrect Invoice ID.", response.content.decode())
+        self.assertEqual(response.status_code, 404)
+        self.assertIn("Incorrect/Invalid Invoice ID.", response.content.decode())
 
-    # Test: Payment page POST with invalid invoice ID (non-digit) shows error
-    def test_payment_page_post_invalid_invoice_id_non_digit(self):
+    # Test: Payment page POST with invalid invoice number shows error
+    def test_payment_page_post_invalid_invoice_number(self):
         response = self.client.post(reverse('payment'), {'invoice_id': 'abc'})
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("Incorrect Invoice ID.", response.content.decode())
+        self.assertEqual(response.status_code, 404)
+        self.assertIn("Incorrect/Invalid Invoice ID.", response.content.decode())
 
-    # Test: Payment page POST with invalid invoice ID (not exists) shows error
-    def test_payment_page_post_invalid_invoice_id_not_exists(self):
+    # Test: Payment page POST with invalid invoice number (not exists) shows error
+    def test_payment_page_post_invalid_invoice_number_not_exists(self):
         response = self.client.post(reverse('payment'), {'invoice_id': '99999'})
         self.assertEqual(response.status_code, 404)
-        self.assertIn("Incorrect Invoice ID.", response.content.decode())
+        self.assertIn("Incorrect/Invalid Invoice ID.", response.content.decode())
 
-    # Test: Payment page POST with valid invoice ID redirects to checkout
-    def test_payment_page_post_valid_invoice_id_redirects(self):
+    # Test: Payment page POST with valid invoice number redirects to checkout
+    def test_payment_page_post_valid_invoice_number_redirects(self):
         user = User.objects.create_user(email='test@example.com', password='pass')
-        invoice = Invoice.objects.create(user=user, amount=1000)
-        response = self.client.post(reverse('payment'), {'invoice_id': str(invoice.id)})
+        invoice = Invoice.objects.create(user=user, amount=1000, stripe_invoice_number='INV-0001')
+        response = self.client.post(reverse('payment'), {'invoice_id': invoice.stripe_invoice_number})
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response['Location'], reverse('create_checkout_session', args=[invoice.id]))
+        self.assertEqual(response['Location'], reverse('create_checkout_session', args=[invoice.stripe_invoice_number]))
 
     # Test: Payment page POST with already-paid invoice shows appropriate error
     def test_payment_page_post_paid_invoice_shows_error(self):
         user = User.objects.create_user(email='paid@example.com', password='pass')
-        invoice = Invoice.objects.create(user=user, amount=1000, status=Invoice.Status.PAID, paid=True)
-        response = self.client.post(reverse('payment'), {'invoice_id': str(invoice.id)}, follow=True)
+        invoice = Invoice.objects.create(
+            user=user,
+            amount=1000,
+            status=Invoice.Status.PAID,
+            paid=True,
+            stripe_invoice_number='INV-PAID-0001', # No need to check format of number, only numbers in DB will be accepted.
+        )
+        response = self.client.post(reverse('payment'), {'invoice_id': invoice.stripe_invoice_number}, follow=True)
         self.assertRedirects(response, reverse('payment'))
         messages = list(response.context['messages'])
         self.assertEqual(len(messages), 1)
@@ -652,7 +688,6 @@ class AdminPermissionTests(TestCase):
             reverse("admin_clients"),
             reverse("admin_schedule"),
             reverse("admin_editor"),
-            reverse("admin_history"),
             reverse("admin_appointments"),
             reverse("admin_create_invoices"),
             reverse("admin_invoice_confirmation"),
@@ -1038,12 +1073,40 @@ class AdminEditorTests(TestCase):
             nameTitle="Lydia A. Suprun",
             aboutMeDescription="<p>About text</p>",
             officeLocation="123 Main St",
-            stepParentAdoptionDescription="<p>Step-parent</p>",
-            adultAdoptionDescription="<p>Adult</p>",
-            guardianshipDescription="<p>Guardianship</p>",
-            guardianshipToAdoptionDescription="<p>G to A</p>",
-            independentAdoptionDescription="<p>Independent</p>",
+            phoneNumber="555-123-4567",
+            emailAddress="editor@example.com",
             footerDescription="<p>Footer</p>",
+        )
+        PracticeAreaItem.objects.all().delete()
+        PracticeAreaItem.objects.create(
+            title="Step-Parent Adoption",
+            description="<p>Step-parent</p>",
+            display_order=1,
+            is_active=True,
+        )
+        PracticeAreaItem.objects.create(
+            title="Adult Adoption",
+            description="<p>Adult</p>",
+            display_order=2,
+            is_active=True,
+        )
+        PracticeAreaItem.objects.create(
+            title="Guardianship",
+            description="<p>Guardianship</p>",
+            display_order=3,
+            is_active=True,
+        )
+        PracticeAreaItem.objects.create(
+            title="Guardianship to Adoption",
+            description="<p>G to A</p>",
+            display_order=4,
+            is_active=True,
+        )
+        PracticeAreaItem.objects.create(
+            title="Independent Adoption",
+            description="<p>Independent</p>",
+            display_order=5,
+            is_active=True,
         )
 
     def setUp(self):
@@ -1063,6 +1126,7 @@ class AdminEditorTests(TestCase):
             last_name="User",
             is_active=True,
         )
+        self.practice_areas = list(PracticeAreaItem.objects.order_by('display_order'))
 
     # commented out for now bc we aren't enforcing superuser for admin dashboard yet
     # Test: Editor page requires superuser
@@ -1070,6 +1134,21 @@ class AdminEditorTests(TestCase):
     #     self.client.force_login(self.regular_user)
     #     response = self.client.get(reverse('admin_editor'))
     #     self.assertNotEqual(response.status_code, 200)
+
+    def _practice_area_formset_data(self):
+        data = {
+            'pa-TOTAL_FORMS': str(len(self.practice_areas)),
+            'pa-INITIAL_FORMS': str(len(self.practice_areas)),
+            'pa-MIN_NUM_FORMS': '0',
+            'pa-MAX_NUM_FORMS': '1000',
+        }
+        for index, area in enumerate(self.practice_areas):
+            data[f'pa-{index}-id'] = str(area.pk)
+            data[f'pa-{index}-title'] = area.title
+            data[f'pa-{index}-description'] = area.description
+            if area.is_active:
+                data[f'pa-{index}-is_active'] = 'on'
+        return data
 
     # Test: GET loads current content into form fields
     def test_get_loads_content_into_form(self):
@@ -1092,12 +1171,21 @@ class AdminEditorTests(TestCase):
         self.assertEqual(form.initial['nameTitle'], "Lydia A. Suprun")
         self.assertEqual(form.initial['aboutMeDescription'], "<p>About text</p>")
         self.assertEqual(form.initial['officeLocation'], "123 Main St")
-        self.assertEqual(form.initial['stepParentAdoptionDescription'], "<p>Step-parent</p>")
-        self.assertEqual(form.initial['adultAdoptionDescription'], "<p>Adult</p>")
-        self.assertEqual(form.initial['guardianshipDescription'], "<p>Guardianship</p>")
-        self.assertEqual(form.initial['guardianshipToAdoptionDescription'], "<p>G to A</p>")
-        self.assertEqual(form.initial['independentAdoptionDescription'], "<p>Independent</p>")
+        self.assertEqual(form.initial['phoneNumber'], "555-123-4567")
+        self.assertEqual(form.initial['emailAddress'], "editor@example.com")
         self.assertEqual(form.initial['footerDescription'], "<p>Footer</p>")
+        pa_formset = response.context['pa_formset']
+        self.assertEqual(pa_formset.total_form_count(), 5)
+        self.assertEqual(
+            [form.initial['title'] for form in pa_formset.forms],
+            [
+                'Step-Parent Adoption',
+                'Adult Adoption',
+                'Guardianship',
+                'Guardianship to Adoption',
+                'Independent Adoption',
+            ],
+        )
 
     # Test: POST updates content and creates new version
     def test_post_updates_content(self):
@@ -1108,19 +1196,25 @@ class AdminEditorTests(TestCase):
             'nameTitle': 'Updated Name',
             'aboutMeDescription': '<p>Updated about</p>',
             'officeLocation': 'Updated Location',
-            'stepParentAdoptionDescription': '<p>Updated step-parent</p>',
-            'adultAdoptionDescription': '<p>Updated adult</p>',
-            'guardianshipDescription': '<p>Updated guardianship</p>',
-            'guardianshipToAdoptionDescription': '<p>Updated g to a</p>',
-            'independentAdoptionDescription': '<p>Updated independent</p>',
+            'phoneNumber': '800-555-0000',
+            'emailAddress': 'updated@example.com',
             'footerDescription': '<p>Updated footer</p>',
+            'faq-TOTAL_FORMS': '0',
+            'faq-INITIAL_FORMS': '0',
+            'faq-MIN_NUM_FORMS': '0',
+            'faq-MAX_NUM_FORMS': '1000',
         }
+        post_data.update(self._practice_area_formset_data())
         response = self.client.post(reverse('admin_editor'), post_data)
         self.assertRedirects(response, reverse('admin_editor'))
 
         # Verify the content was saved
         latest = WebsiteContent.objects.order_by('-versionNumber').first()
         self.assertEqual(latest.frontPageHeader, 'Updated Header')
+        self.assertEqual(latest.nameTitle, 'Updated Name')
+        self.assertEqual(latest.officeLocation, 'Updated Location')
+        self.assertEqual(latest.phoneNumber, '800-555-0000')
+        self.assertEqual(latest.emailAddress, 'updated@example.com')
         self.assertEqual(latest.footerDescription, '<p>Updated footer</p>')
 
     # Test: "Update All" saves all sections in one POST
@@ -1132,13 +1226,15 @@ class AdminEditorTests(TestCase):
             'nameTitle': 'All Updated Name',
             'aboutMeDescription': '<p>All updated about</p>',
             'officeLocation': 'All Updated Location',
-            'stepParentAdoptionDescription': '<p>All updated SP</p>',
-            'adultAdoptionDescription': '<p>All updated Adult</p>',
-            'guardianshipDescription': '<p>All updated Guard</p>',
-            'guardianshipToAdoptionDescription': '<p>All updated GtA</p>',
-            'independentAdoptionDescription': '<p>All updated Indep</p>',
+            'phoneNumber': '999-999-9999',
+            'emailAddress': 'allupdated@example.com',
             'footerDescription': '<p>All updated footer</p>',
+            'faq-TOTAL_FORMS': '0',
+            'faq-INITIAL_FORMS': '0',
+            'faq-MIN_NUM_FORMS': '0',
+            'faq-MAX_NUM_FORMS': '1000',
         }
+        post_data.update(self._practice_area_formset_data())
         response = self.client.post(reverse('admin_editor'), post_data)
         self.assertRedirects(response, reverse('admin_editor'))
 
@@ -1146,11 +1242,8 @@ class AdminEditorTests(TestCase):
         self.assertEqual(latest.frontPageHeader, 'All Updated Header')
         self.assertEqual(latest.nameTitle, 'All Updated Name')
         self.assertEqual(latest.officeLocation, 'All Updated Location')
-        self.assertEqual(latest.stepParentAdoptionDescription, '<p>All updated SP</p>')
-        self.assertEqual(latest.adultAdoptionDescription, '<p>All updated Adult</p>')
-        self.assertEqual(latest.guardianshipDescription, '<p>All updated Guard</p>')
-        self.assertEqual(latest.guardianshipToAdoptionDescription, '<p>All updated GtA</p>')
-        self.assertEqual(latest.independentAdoptionDescription, '<p>All updated Indep</p>')
+        self.assertEqual(latest.phoneNumber, '999-999-9999')
+        self.assertEqual(latest.emailAddress, 'allupdated@example.com')
         self.assertEqual(latest.footerDescription, '<p>All updated footer</p>')
 
     # Test: Success message "Pages Have Been Updated" shown after save
@@ -1162,13 +1255,15 @@ class AdminEditorTests(TestCase):
             'nameTitle': '',
             'aboutMeDescription': '',
             'officeLocation': '',
-            'stepParentAdoptionDescription': '',
-            'adultAdoptionDescription': '',
-            'guardianshipDescription': '',
-            'guardianshipToAdoptionDescription': '',
-            'independentAdoptionDescription': '',
+            'phoneNumber': '',
+            'emailAddress': '',
             'footerDescription': '',
+            'faq-TOTAL_FORMS': '0',
+            'faq-INITIAL_FORMS': '0',
+            'faq-MIN_NUM_FORMS': '0',
+            'faq-MAX_NUM_FORMS': '1000',
         }
+        post_data.update(self._practice_area_formset_data())
         response = self.client.post(reverse('admin_editor'), post_data, follow=True)
         self.assertEqual(response.status_code, 200)
         msgs = list(get_messages(response.wsgi_request))
