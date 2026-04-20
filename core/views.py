@@ -74,8 +74,6 @@ def login(r):
 ############################ Admin Views ############################ 
 #  @superuser_required
 #def admin_dashboard(r): return render(r, "admin/dashboard.html")
-@superuser_required
-def admin_schedule(r): return render(r, "admin/schedule.html")
 # @superuser_required
 def admin_clients(r): return render(r, "admin/clients.html")
 # @superuser_required
