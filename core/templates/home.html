@@ -1,5 +1,12 @@
 {% extends 'base.html' %}
 
+{% block title %}Adoption & Guardianship Attorney Sacramento | Lydia A. Suprun{% endblock %}
+{% block meta_description %}Sacramento adoption and guardianship attorney Lydia A. Suprun. Step-parent adoption, adult adoption, guardianship, and independent adoption. Schedule a consultation today.{% endblock %}
+{% block og_title %}Adoption & Guardianship Attorney Sacramento | Lydia A. Suprun{% endblock %}
+{% block og_description %}Sacramento adoption and guardianship attorney Lydia A. Suprun. Step-parent adoption, adult adoption, guardianship, and independent adoption. Schedule a consultation today.{% endblock %}
+{% block twitter_title %}Adoption & Guardianship Attorney Sacramento | Lydia A. Suprun{% endblock %}
+{% block twitter_description %}Sacramento adoption and guardianship attorney Lydia A. Suprun. Step-parent adoption, adult adoption, guardianship, and independent adoption. Schedule a consultation today.{% endblock %}
+
 {% block content %}
 {% load static %}
 
@@ -85,5 +92,42 @@
   </div>
 
 </section>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": ["LegalService", "LocalBusiness"],
+  "name": "Law Office of Lydia A. Suprun",
+  "url": "{{ request.scheme }}://{{ request.get_host }}",
+  "address": {
+    "@type": "PostalAddress",
+    "streetAddress": "{{ BUILDING_ADDRESS|escapejs }}"
+  },
+  "areaServed": "Sacramento, CA",
+  "description": "Adoption and guardianship law firm serving Sacramento County. Step-parent adoption, adult adoption, guardianship, and independent adoption.",
+  "priceRange": "$$"
+}
+</script>
+
+{% if faqs %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {% for faq in faqs %}
+    {
+      "@type": "Question",
+      "name": "{{ faq.question|escapejs }}",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "{{ faq.answer|striptags|escapejs }}"
+      }
+    }{% if not forloop.last %},{% endif %}
+    {% endfor %}
+  ]
+}
+</script>
+{% endif %}
 
 {% endblock %}
