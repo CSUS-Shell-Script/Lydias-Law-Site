@@ -39,10 +39,11 @@
             href="{% url 'payment' %}">Payment
           </a>
         </li>
+        <li id="collapsed-login-pos" class="nav-item text-center mt-3"></li>
       </ul>
 
       <!-- Login Button -->
-      <div class="d-flex ms-3">
+      <div id="login-btn" class="d-flex ms-3">
         {% if user.is_authenticated %}
         <!-- Logout form: uses POST for security -->
           <form method="post" action="{% url 'logout' %}" class="m-0">
@@ -60,3 +61,19 @@
     </div>
   </div>
 </nav>
+
+<script>
+  const nav = document.getElementById('nav');
+  const login = document.getElementById('login-btn');
+  const mobileSlot = document.getElementById('collapsed-login-pos');
+
+  const originalParent = login.parentElement;
+
+  nav.addEventListener('show.bs.collapse', () => {
+      mobileSlot.appendChild(login);
+  });
+
+  nav.addEventListener('hide.bs.collapse', () => {
+      originalParent.appendChild(login);
+  });
+</script>
