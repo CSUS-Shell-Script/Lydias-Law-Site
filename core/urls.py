@@ -1,6 +1,9 @@
 # urls.py maps URLs to views
 
 from django.urls import path, include
+from django.views.generic import RedirectView
+from django.contrib.staticfiles.storage import staticfiles_storage
+from django.contrib.sitemaps.views import sitemap
 from . import views
 from sitecontent.views import about
 from sitecontent.views import home
@@ -12,12 +15,17 @@ from users.views import admin_dashboard as users_admin_dashboard
 from finances.views import create_invoice as finances_create_invoice
 from finances.views import invoice_confirmation as finances_invoice_confirmation
 from finances import views as finance_views
+from .sitemaps import StaticViewSitemap
 
 ''' IMPORTANT FOR ALL WHO READ '''
 # There seems to be a potential conflicts with different views that have been made for the same pages.
 # For example there was a contact view in the sitecontent app but also one here in the core app.
 # We should take time to separate views and organize/clean them up at some point.
 ''' IMPORTANT FOR ALL WHO READ '''
+
+sitemaps = {
+    "static": StaticViewSitemap(),
+}
 
 urlpatterns = [
     ########## Public pages ##########
@@ -32,6 +40,13 @@ urlpatterns = [
     path("appointment_confirmation/", views.appointment_confirmation, name="appointment_confirmation"),
     path("payment/success/", views.payment_success, name="payment_success"),
     path("payment/failure/", views.payment_failure, name="payment_failure"),
+
+    # For SEO (Google crawl)
+    path("sitemap.xml", sitemap, {"sitemaps": sitemaps}, name="sitemap"),
+    path(
+        "robots.txt",
+        RedirectView.as_view(url=staticfiles_storage.url("core/robots.txt"), permanent=True),
+    ),
 
     ########## Users pages ##########
     path("users/", include("users.urls")),
