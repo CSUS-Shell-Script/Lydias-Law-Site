@@ -21,10 +21,10 @@ from django.conf.urls.static import static
 from django.views.generic import RedirectView
 from django.contrib.staticfiles.storage import staticfiles_storage
 from django.contrib.sitemaps.views import sitemap
-from core.sitemaps import StaticViewSitemap
+from sitemap.sitemaps import StaticViewSitemap
 
 sitemaps = {
-    'static': StaticViewSitemap(),
+    'static': StaticViewSitemap,
 }
 
 urlpatterns = [
@@ -37,8 +37,8 @@ urlpatterns = [
     path("", include("finances.urls")),
     
     # For SEO (Google crawl)
-    # From core/sitemap.py and core/static/core/robot.txt file
-    path('sitemap.xml', sitemap, {'sitemaps': sitemaps}, name='django.contrib.sitemaps.views.sitemap'),
+    # From sitemap/sitemaps.py and core/static/core/robot.txt file
+    path("sitemap.xml", sitemap, {'sitemaps': sitemaps}, name="sitemap"), 
     path("robots.txt", RedirectView.as_view(
         url=staticfiles_storage.url("core/robots.txt"),
         permanent=True
