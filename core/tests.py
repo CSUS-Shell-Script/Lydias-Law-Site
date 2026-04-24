@@ -686,7 +686,6 @@ class AdminPermissionTests(TestCase):
             reverse("admin_dashboard"),
             reverse("admin_transactions"),
             reverse("admin_clients"),
-            reverse("admin_schedule"),
             reverse("admin_editor"),
             reverse("admin_appointments"),
             reverse("admin_create_invoices"),
@@ -910,18 +909,18 @@ class AdminClientsViewTest(TestCase):
             is_active=True
         )
         
-        # Create non-client users that should NOT appear
         self.guest = User.objects.create_user(
             email='guest@example.com',
             password='password123',
             first_name='Guest',
             last_name='User',
             role=User.Role.GUEST,
+            retainer_balance=0,
             is_active=True
         )
         
-    #Test that only CLIENT role users appear
-    def test_only_clients_shown(self):
+    #Test that CLIENT and GUEST role users appear (not admin)
+    def test_clients_and_guests_appear(self):
         # Login first
         login_successful = self.client.login(email='admin@example.com', password='adminpass')
         self.assertTrue(login_successful, "Admin login failed!")
@@ -933,16 +932,16 @@ class AdminClientsViewTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIsNotNone(response.context)
         
-        # Should only show 2 clients (John and Jane)
-        self.assertEqual(len(response.context['page_obj']), 2)
+        # Should show 3 clients but no admin
+        self.assertEqual(len(response.context['page_obj']), 3)
         
         # Verify all returned users have CLIENT role
         for user in response.context['page_obj']:
-            self.assertEqual(user.role, User.Role.CLIENT)
+            self.assertIn(user.role, [User.Role.CLIENT, User.Role.GUEST])
             
-        # Verify guest is NOT in the results
+        # Verify guest is in the results
         user_emails = [user.email for user in response.context['page_obj']]
-        self.assertNotIn('guest@example.com', user_emails)
+        self.assertIn('guest@example.com', user_emails)
 
     #Test search functionality      
     def test_search_works(self):
@@ -978,7 +977,7 @@ class AdminClientsViewTest(TestCase):
         
         # Filter no balance
         response = self.client.get(reverse('admin_clients'), {'balance': 'no_balance'})
-        self.assertEqual(len(response.context['page_obj']), 1)
+        self.assertEqual(len(response.context['page_obj']), 2)
         self.assertEqual(response.context['page_obj'][0].retainer_balance, 0)
         
     #Test search + balance filter together

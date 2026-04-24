@@ -72,15 +72,10 @@ def login(r):
     return render(r, "users/login.html", {"role": role})
 
 ############################ Admin Views ############################ 
-#  @superuser_required
-#def admin_dashboard(r): return render(r, "admin/dashboard.html")
-# @superuser_required
-def admin_clients(r): return render(r, "admin/clients.html")
-# @superuser_required
 
 @superuser_required
 def admin_clients(request):
-    users = User.objects.filter(role__in=[User.Role.CLIENT])
+    users = User.objects.filter(role__in=[User.Role.CLIENT, User.Role.GUEST])
 
     # Search
     search_query = request.GET.get('search', '').strip()
