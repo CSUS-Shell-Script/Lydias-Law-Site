@@ -115,7 +115,7 @@
   {% for area in practice_areas %}
   <div class="practice-area-card">
     <div class="practice-area-image">
-      <img src="{% static area.image_static_path %}" alt="{{ area.title }}">
+      <img src="{% static area.image_static_path %}" alt="Professional representation for {{ area.title }} services" title="{{ area.title }} - Law Office of Lydia A. Suprun">
       <div class="practice-area-image-title">{{ area.title }}</div>
     </div>
     <div class="practice-area-content">
