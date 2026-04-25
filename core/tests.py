@@ -650,9 +650,14 @@ class WebhookTests(TestCase):
         self.assertNotEqual(response.status_code, 404) # make sure this path exists
 
     def test_calendly_webhook_csrf_exempt(self):
-        response = self.client.post("/appointments/webhooks/calendly/", data={})
+        from django.test import override_settings
+
+        # Signature verification is skipped when CALENDLY_WEBHOOK_KEY is unset;
+        # this test only asserts the route exists and CSRF does not block POST.
+        with override_settings(CALENDLY_WEBHOOK_KEY=""):
+            response = self.client.post("/appointments/webhooks/calendly/", data={})
         self.assertNotEqual(response.status_code, 403)
-        self.assertNotEqual(response.status_code, 404) # make sure this path exists
+        self.assertNotEqual(response.status_code, 404)  # make sure this path exists
 
 ############################### Admin pages ###############################
 

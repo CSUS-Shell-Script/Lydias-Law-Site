@@ -1,7 +1,8 @@
 import json
 import string
 
-from django.test import TestCase, Client
+from django.test import TestCase, Client, override_settings
+from django.conf import settings as django_settings
 from django.urls import reverse
 from django.contrib.auth import get_user_model
 from django.utils import timezone
@@ -155,6 +156,7 @@ class ClientAppointmentCreationTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, 'client/appointment_confirmation.html')
 
+@override_settings(CALENDLY_WEBHOOK_KEY="test-calendly-webhook-secret")
 class PublicAppointmentCreationTest(TestCase):
     def setUp(self):
         self.client = Client()
@@ -167,6 +169,18 @@ class PublicAppointmentCreationTest(TestCase):
         )
 
         self.url = reverse("calendly_webhook")
+
+    def _signed_post(self, payload):
+        raw = json.dumps(payload).encode("utf-8")
+        from appointments.webhook_signature import build_calendly_webhook_signature_header
+
+        sig = build_calendly_webhook_signature_header(raw, django_settings.CALENDLY_WEBHOOK_KEY)
+        return self.client.post(
+            self.url,
+            data=raw,
+            content_type="application/json",
+            HTTP_CALENDLY_WEBHOOK_SIGNATURE=sig,
+        )
 
     # Helper to return a valid payload for testing
     def valid_payload(self):
@@ -190,11 +204,7 @@ class PublicAppointmentCreationTest(TestCase):
     # Non signed-in user can schedule appointment and database is updated
     def test_valid_guest_appointment_created(self):
         payload = self.valid_payload()
-        response = self.client.post(
-            self.url,
-            data=json.dumps(payload),
-            content_type="application/json"
-        )
+        response = self._signed_post(payload)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(Appointments.objects.count(), 1)
 
@@ -207,7 +217,7 @@ class PublicAppointmentCreationTest(TestCase):
     def test_blank_name_prevents_appointment(self):
         payload = self.valid_payload()
         payload["payload"]["name"] = ""
-        self.client.post(self.url, data=json.dumps(payload), content_type="application/json")
+        self._signed_post(payload)
         # Appointment should not exist
         self.assertFalse(Appointments.objects.filter(calendly_event_uri="event_001").exists())
 
@@ -215,14 +225,14 @@ class PublicAppointmentCreationTest(TestCase):
     def test_blank_email_prevents_appointment(self):
         payload = self.valid_payload()
         payload["payload"]["email"] = ""
-        self.client.post(self.url, data=json.dumps(payload), content_type="application/json")
+        self._signed_post(payload)
         self.assertFalse(Appointments.objects.filter(calendly_event_uri="event_001").exists())
 
     # Invalid email format prevents creation
     def test_invalid_email_prevents_appointment(self):
         payload = self.valid_payload()
         payload["payload"]["email"] = "not-an-email"
-        self.client.post(self.url, data=json.dumps(payload), content_type="application/json")
+        self._signed_post(payload)
         self.assertFalse(Appointments.objects.filter(calendly_event_uri="event_001").exists())
 
 class AdminSchedulingTests(TestCase):
@@ -475,9 +485,10 @@ class AppointmentModelTest(TestCase):
         self.assertEqual(notif.error_message, 'SMTP timeout')
 
 
+@override_settings(CALENDLY_WEBHOOK_KEY="test-calendly-webhook-secret")
 class CalendlyWebhookTest(TestCase):
     """
-    Tests for the Calendly webhook endpoint at POST /webhooks/calendly/.
+    Tests for the Calendly webhook endpoint at POST /appointments/webhooks/calendly/.
 
     When Calendly fires an event (e.g. a client books or cancels), it sends
     a POST request to this URL with a JSON payload. These tests verify that
@@ -490,10 +501,8 @@ class CalendlyWebhookTest(TestCase):
         └─ payload.uri                  ──► Invitee.calendly_invitee_uri
         └─ payload.email                ──► matched to a User in our DB
 
-    ── Signature tests ────────────────────────────────────────────────────
-    The last two tests (test_missing_signature_* / test_invalid_signature_*)
-    document REQUIRED but NOT YET IMPLEMENTED behaviour. They will fail
-    until the view validates the Calendly-Webhook-Signature header.
+    Successful POSTs include a valid ``Calendly-Webhook-Signature`` built with
+    ``settings.CALENDLY_WEBHOOK_KEY`` (see ``appointments.webhook_signature``).
     """
 
     WEBHOOK_URL = reverse('calendly_webhook')
@@ -588,13 +597,21 @@ class CalendlyWebhookTest(TestCase):
             'payload': {'uri': invitee_uri or self.INVITEE_URI},
         }
 
-    def _post(self, payload, headers=None):
+    def _post(self, payload, headers=None, sign=True):
         """Serialize payload to JSON and POST it to the webhook endpoint."""
+        raw = json.dumps(payload).encode("utf-8")
+        hdrs = dict(headers or {})
+        if sign and "HTTP_CALENDLY_WEBHOOK_SIGNATURE" not in hdrs:
+            from appointments.webhook_signature import build_calendly_webhook_signature_header
+
+            hdrs["HTTP_CALENDLY_WEBHOOK_SIGNATURE"] = build_calendly_webhook_signature_header(
+                raw, django_settings.CALENDLY_WEBHOOK_KEY
+            )
         return self.http.post(
             self.WEBHOOK_URL,
-            data=json.dumps(payload),
-            content_type='application/json',
-            **(headers or {}),
+            data=raw,
+            content_type="application/json",
+            **hdrs,
         )
 
     # ── Section 1: HTTP method guard ──────────────────────────────────────
@@ -738,20 +755,14 @@ class CalendlyWebhookTest(TestCase):
         self._post({'event': 'routing_form.submission', 'payload': {}})
         self.assertEqual(Appointments.objects.count(), 0)
 
-    # ── Section 6: Signature validation (NOT YET IMPLEMENTED) ────────────
-    # Calendly signs every webhook with an HMAC-SHA256 signature sent in
-    # the Calendly-Webhook-Signature header. Verifying this prevents anyone
-    # on the internet from spoofing fake bookings or cancellations.
-    #
-    # !! These two tests will FAIL on the current code !!
-    # They are written now so the requirement is visible in the test suite.
-    # Once the view reads CALENDLY_WEBHOOK_SECRET from settings and validates
-    # the header, these tests will begin passing automatically.
+    # ── Section 6: Signature validation ───────────────────────────────────
+    # Requests without a valid Calendly-Webhook-Signature must be rejected
+    # when CALENDLY_WEBHOOK_KEY is configured (see ``calendly_webhook`` view).
 
     def test_missing_signature_header_returns_403(self):
         # A request with no signature header should be rejected — it could
         # be anyone, not Calendly.
-        response = self._post(self._created_payload())
+        response = self._post(self._created_payload(), sign=False)
         self.assertIn(response.status_code, [400, 403])
 
     def test_invalid_signature_returns_403(self):
@@ -759,6 +770,6 @@ class CalendlyWebhookTest(TestCase):
         # also be rejected, even if the JSON body looks valid.
         response = self._post(
             self._created_payload(),
-            headers={'HTTP_CALENDLY_WEBHOOK_SIGNATURE': 'invalid-signature'},
+            headers={"HTTP_CALENDLY_WEBHOOK_SIGNATURE": "invalid-signature"},
         )
         self.assertIn(response.status_code, [400, 403])
