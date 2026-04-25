@@ -15,7 +15,7 @@ from users.views import admin_dashboard as users_admin_dashboard
 from finances.views import create_invoice as finances_create_invoice
 from finances.views import invoice_confirmation as finances_invoice_confirmation
 from finances import views as finance_views
-from .sitemaps import StaticViewSitemap
+from sitemap.sitemaps import StaticViewSitemap
 
 ''' IMPORTANT FOR ALL WHO READ '''
 # There seems to be a potential conflicts with different views that have been made for the same pages.
