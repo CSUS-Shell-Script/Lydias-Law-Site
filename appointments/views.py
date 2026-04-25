@@ -1,5 +1,6 @@
 from datetime import timedelta
-from django.http import JsonResponse, HttpResponseBadRequest
+from django.conf import settings
+from django.http import JsonResponse, HttpResponseBadRequest, HttpResponseForbidden
 from django.shortcuts import redirect
 from django.utils.dateparse import parse_datetime
 from django.views.decorators.csrf import csrf_exempt
@@ -11,6 +12,7 @@ from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
 
 from .models import Appointments, Invitee
+from .webhook_signature import verify_calendly_webhook_signature
 from users.models import User
 import json
 import secrets
@@ -22,13 +24,18 @@ def calendly_webhook(request):
     if request.method != "POST":
         return HttpResponseBadRequest("POST only")
 
+    raw_body = request.body
+
+    signing_key = (getattr(settings, "CALENDLY_WEBHOOK_KEY", "") or "").strip()
+    if signing_key:
+        sig = request.headers.get("Calendly-Webhook-Signature")
+        if not verify_calendly_webhook_signature(raw_body, sig, signing_key):
+            return HttpResponseForbidden("Invalid or missing Calendly webhook signature")
+
     try:
-        payload = json.loads(request.body.decode("utf-8"))
+        payload = json.loads(raw_body.decode("utf-8"))
     except json.JSONDecodeError:
         return HttpResponseBadRequest("Invalid JSON")
-
-    print(">>> Calendly webhook HIT")
-    print(">>> Parsed payload:", payload)
 
     event_type = payload.get("event")  # e.g. "invitee.created"
     data = payload.get("payload") or {}
