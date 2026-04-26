@@ -47,7 +47,7 @@ def home(request):
         return render(request, 'home.html', {
             "role": role,
             "BUILDING_ADDRESS": settings.BUILDING_ADDRESS,
-            "GOOGLE_MAPS_API_KEY": settings.GOOGLE_MAPS_API_KEY,
+            "GOOGLE_MAPS_API_KEY": settings.GOOGLE_MAPS_API_KEY,            
             'content': content,
             "faqs": faqs,
             "practice_areas": practice_areas,
@@ -129,6 +129,7 @@ def contact(request, client=False):
         # Render contact page
         return render(request, page, {
             'location': location,
+            'lydia': lydia,
             "BUILDING_ADDRESS": settings.BUILDING_ADDRESS,
             "GOOGLE_MAPS_API_KEY": settings.GOOGLE_MAPS_API_KEY,
             'content': location,
