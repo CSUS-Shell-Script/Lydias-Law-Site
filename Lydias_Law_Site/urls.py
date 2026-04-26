@@ -18,14 +18,6 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
-from django.views.generic import RedirectView
-from django.contrib.staticfiles.storage import staticfiles_storage
-from django.contrib.sitemaps.views import sitemap
-from sitemap.sitemaps import StaticViewSitemap
-
-sitemaps = {
-    'static': StaticViewSitemap,
-}
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -35,14 +27,6 @@ urlpatterns = [
     path("appointments/", include("appointments.urls")),
     path("ckeditor5/", include('django_ckeditor_5.urls')),
     path("", include("finances.urls")),
-    
-    # For SEO (Google crawl)
-    # From sitemap/sitemaps.py and core/static/core/robot.txt file
-    path("sitemap.xml", sitemap, {'sitemaps': sitemaps}, name="sitemap"), 
-    path("robots.txt", RedirectView.as_view(
-        url=staticfiles_storage.url("core/robots.txt"),
-        permanent=True
-    )),
 
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 
