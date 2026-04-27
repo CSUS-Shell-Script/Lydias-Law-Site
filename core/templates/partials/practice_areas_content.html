@@ -112,72 +112,22 @@
 <div class="container-practice-areas">
   <h1 class="practice-areas-header">Practice Areas</h1>
 
-  <!-- Step-Parent Adoption -->
+  {% for area in practice_areas %}
   <div class="practice-area-card">
     <div class="practice-area-image">
-      <img src="{% static 'images/step-parent.png' %}" alt="Step-Parent Adoption">
-      <div class="practice-area-image-title">Step-Parent<br>Adoption</div>
+      <img src="{% static area.image_static_path %}" alt="Professional representation for {{ area.title }} services" title="{{ area.title }} - Law Office of Lydia A. Suprun">
+      <div class="practice-area-image-title">{{ area.title }}</div>
     </div>
     <div class="practice-area-content">
+      <div class="practice-area-title">{{ area.title }}</div>
       <div class="practice-area-text">
-        {{ content.stepParentAdoptionDescription|safe }}
+        {{ area.description|safe }}
       </div>
     </div>
   </div>
-
-  <!-- Adult Adoption -->
-  <div class="practice-area-card">
-    <div class="practice-area-image">
-      <img src="{% static 'images/adult.png' %}" alt="Adult Adoption">
-      <div class="practice-area-image-title">Adult Adoption</div>
-    </div>
-    <div class="practice-area-content">
-      <p class="practice-area-text">
-        {{ content.adultAdoptionDescription|safe }}
-      </p>
-    </div>
-  </div>
-
-  <!-- Guardianship -->
-  <div class="practice-area-card">
-    <div class="practice-area-image">
-      <img src="{% static 'images/guardianship.png' %}" alt="Guardianship">
-      <div class="practice-area-image-title">Guardianship</div>
-    </div>
-    <div class="practice-area-content">
-      <p class="practice-area-text">
-        {{ content.guardianshipDescription|safe }}
-      </p>
-    </div>
-  </div>
-
-  <!-- Guardianship to Adoption -->
-  <div class="practice-area-card">
-    <div class="practice-area-image">
-      <img src="{% static 'images/guardianship_to_adoption.png' %}" alt="Guardianship to Adoption">
-      <div class="practice-area-image-title">Guardianship to<br>Adoption</div>
-    </div>
-    <div class="practice-area-content">
-      <p class="practice-area-text">
-        {{ content.guardianshipToAdoptionDescription|safe }}
-      </p>
-    </div>
-  </div>
-
-  <!-- Independent Adoption -->
-  <div class="practice-area-card">
-    <div class="practice-area-image">
-      <img src="{% static 'images/independent.png' %}" alt="Independent Adoption">
-      <div class="practice-area-image-title">Independent<br>Adoption</div>
-    </div>
-    <div class="practice-area-content">
-      <div class="practice-area-text">
-        <!-- in order to get the formatting right, i use the |safe tag to read html directly from the db -->
-        <!-- look into ckeditor when we add editor functionality? -->
-        {{ content.independentAdoptionDescription|safe|linebreaks}}
-      </div>
-    </div>
-  </div>
+  {% empty %}
+  <p style="text-align:center; color:#666; padding: 2rem 0;">No practice areas to display.</p>
+  {% endfor %}
 
   <div class="consultation-section">
     <div class="consultation-section-text my-1">Schedule a Consultation Today</div>

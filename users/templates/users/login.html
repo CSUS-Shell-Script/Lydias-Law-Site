@@ -34,7 +34,7 @@
                 <button class="btn w-100" style="background-color: #2d7a73; border-radius: 1.5rem; color: white !important;">Login</button>
             </div>
 
-            {% if google_login_enabled %}
+            {% if google_login_enabled and role != 'admin' %}
                 <a href="{% provider_login_url 'google' next='/client/dashboard/' %}">
                     <button type="button" class="btn w-100 mb-4 d-flex align-items-center justify-content-center gap-3" 
                         style="background-color: white; color: rgba(0, 0, 0, 0.5); border-radius: 2rem;">

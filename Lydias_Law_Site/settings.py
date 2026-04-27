@@ -33,7 +33,7 @@ GOOGLE_MAPS_API_KEY = env("GOOGLE_MAPS_API_KEY")
 BUILDING_ADDRESS = env("BUILDING_ADDRESS")
 CALENDLY_CLIENT_ID = env("CALENDLY_CLIENT_ID")
 CALENDLY_CLIENT_PASSWORD = env("CALENDLY_CLIENT_PASSWORD")
-CALENDLY_WEBHOOK_KEY = env("CALENDLY_WEBHOOK_KEY")
+CALENDLY_WEBHOOK_KEY = env("CALENDLY_WEBHOOK_KEY", default="")
 # Stripe webhook secret for signature verification (from Stripe dashboard).
 STRIPE_WEBHOOK_SECRET = env("STRIPE_WEBHOOK_SECRET", default="")
 STRIPE_SECRET_KEY = env("STRIPE_SECRET_KEY")
@@ -86,7 +86,8 @@ INSTALLED_APPS = [
     "appointments",
     "sitecontent",
     "finances",
-    "django_ckeditor_5"
+    "django_ckeditor_5",
+    "django.contrib.sitemaps"
 ]
 
 

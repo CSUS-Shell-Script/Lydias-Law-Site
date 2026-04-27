@@ -4,32 +4,38 @@
 
 {% block extra_css %}
 <style>
-/* ------ CREATE TRANSACTION HEADER BANNER ----- */
-.transaction-header-card {
+  /* ------ CREATE TRANSACTION HEADER BANNER ----- */
+  .transaction-header-card {
     background-color: #e8f2f0 !important;
     width: 100%;
-}
+  }
 
-.transaction-header {
+  .transaction-header {
     font-family: serif;
     text-align: center;
     padding: 2rem 3rem;
     font-size: 2.5rem;
     font-weight: 400;
     color: black;
-}
- /* ------ CREATE TABLE ----- */
- .table-container{ padding: 0 2rem;}
- .status-badge{ 
-    padding: 0.5em 0.75em; 
+  }
+
+  /* ------ CREATE TABLE ----- */
+  .table-container {
+    padding: 0 2rem;
+  }
+
+  .status-badge {
+    padding: 0.5em 0.75em;
     border-radius: 4px;
     font-weight: 500;
   }
+
   .container-fluid {
     padding-left: 5% !important;
     padding-right: 5% !important;
     margin-bottom: 2% !important;
   }
+
   /* Make table header more professional*/
   thead th {
     font-weight: 800;
@@ -38,6 +44,7 @@
     letter-spacing: 0.05em;
     border-top: none !important;
   }
+
   /* Round corners for table card*/
   .card {
     border-radius: 12px;
@@ -45,9 +52,10 @@
   }
 
   /* Custom Badge Styling */
-  .status-badge{
+  .status-badge {
     padding: 6px 14px;
-    border-radius: 50px; /* Pill shape */
+    border-radius: 50px;
+    /* Pill shape */
     font-size: 0.85rem;
     font-weight: 600;
     display: inline-block;
@@ -55,7 +63,7 @@
     min-width: 90px;
   }
 
-  .badge-paid{
+  .badge-paid {
     background-color: #d1e7dd;
     color: #0f5132;
     border: 1px solid #badbcc;
@@ -65,21 +73,21 @@
     background-color: #fff3cd;
     color: #856404;
     border: 1px solid #ffeeba;
-}
+  }
 
-.badge-failed {
+  .badge-failed {
     background-color: #f8d7da;
     color: #842029;
     border: 1px solid #f5c2c7;
-}
+  }
 
-.badge-voided {
+  .badge-voided {
     background-color: #e2e3e5;
     color: #41464b;
     border: 1px solid #d3d6d8;
-}
+  }
 
-.btn-void {
+  .btn-void {
     padding: 4px 14px;
     font-size: 0.82rem;
     font-weight: 600;
@@ -89,40 +97,166 @@
     background: transparent;
     cursor: pointer;
     transition: background 0.15s, color 0.15s;
-}
+  }
 
-.btn-void:hover:not(:disabled) {
+  .btn-void:hover:not(:disabled) {
     background: #dc3545;
     color: #fff;
-}
+  }
 
-.btn-void:disabled {
+  .btn-void:disabled {
     border-color: #adb5bd;
     color: #adb5bd;
     cursor: not-allowed;
-}
+  }
+
+  .filter-card {
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+  }
+
+  .filter-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+    color: #495057;
+  }
+
+  /* Mobile Responsive Styles */
+  @media (max-width: 768px) {
+
+    /* Make container full width on mobile */
+    .container-fluid {
+      padding-left: 1rem !important;
+      padding-right: 1rem !important;
+    }
+
+    /* Make filter form stack vertically */
+    .filter-card .row.g-3>div {
+      margin-bottom: 1rem;
+    }
+
+    /* Make buttons full width on mobile */
+    .filter-card .d-flex.gap-2 {
+      flex-direction: column;
+    }
+
+    .filter-card .btn {
+      width: 100% !important;
+      margin-bottom: 0.5rem;
+    }
+
+    /* Make per-page selector responsive */
+    .card-body .d-flex {
+      flex-direction: column;
+      align-items: stretch !important;
+    }
+
+    .card-body .d-flex select {
+      width: 100% !important;
+      margin-top: 0.5rem;
+    }
+
+    /* Make pagination smaller on mobile */
+    .pagination {
+      flex-wrap: wrap;
+      gap: 0.25rem;
+    }
+
+    .page-link {
+      padding: 0.375rem 0.75rem;
+      font-size: 0.875rem;
+    }
+  }
 </style>
 {% endblock %}
 
 {% block content %}
 <!-- Page Header -->
- <div class="transaction-header-card">
-    <div class="transaction-header">
-        Transactions
-    </div>
+<div class="transaction-header-card">
+  <div class="transaction-header">
+    Transactions
+  </div>
 </div>
 
 <!-- Invoice Container -->
- <div class="container-fluid px-5 mt-4">
+<div class="container-fluid px-5 mt-4">
+
+  <!-- Search and Filter Card -->
+  <div class="card mb-4 filter-card">
+    <div class="card-body">
+      <form method="get" class="row g-3">
+
+        <!-- Reset page to 1 on new search/filter -->
+        <input type="hidden" name="page" value="1">
+        <input type="hidden" name="per_page" value="{{ per_page }}">
+
+        <!-- Search by Name/Email -->
+        <div class="col-md-4">
+          <label class="form-label filter-label">Search by Name or Email</label>
+          <input type="text" name="search" class="form-control" placeholder="Client name or email..."
+            value="{{ search_query }}">
+        </div>
+
+        <!-- Status Filter -->
+        <div class="col-md-3">
+          <label class="form-label filter-label">Status</label>
+          <select name="status" class="form-select">
+            <option value="all" {% if not status_filter or status_filter == 'all' %}selected{% endif %}>All Statuses</option>
+            <option value="paid" {% if status_filter == "paid" %}selected{% endif %}>Paid</option>
+            <option value="pending" {% if status_filter == "pending" %}selected{% endif %}>Pending</option>
+            <option value="voided" {% if status_filter == "voided" %}selected{% endif %}>Voided</option>
+            <option value="failed" {% if status_filter == "failed" %}selected{% endif %}>Failed</option>
+          </select>
+        </div>
+
+        <!-- Amount Range -->
+        <div class="col-md-2">
+          <label class="form-label filter-label">Min Amount</label>
+          <input type="number" name="min_amount" class="form-control" step="0.01" placeholder="Min" value="{{ min_amount }}">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label filter-label">Max Amount</label>
+          <input type="number" name="max_amount" class="form-control" step="0.01" placeholder="Max" value="{{ max_amount }}">
+        </div>
+
+        <!-- Sort Options (Optional) -->
+        <div class="col-md-3">
+          <label class="form-label filter-label">Sort By</label>
+          <select name="sort" class="form-select">
+            <option value="newest" {% if sort == "newest" %}selected{% endif %}>Newest First</option>
+            <option value="oldest" {% if sort == "oldest" %}selected{% endif %}>Oldest First</option>
+            <option value="amount_high" {% if sort == "amount_high" %}selected{% endif %}>Amount (High to Low)</option>
+            <option value="amount_low" {% if sort == "amount_low" %}selected{% endif %}>Amount (Low to High)</option>
+          </select>
+        </div>
+
+        <!-- Buttons -->
+        <div class="col-md-2 d-flex gap-2 align-items-end">
+          <button type="submit" class="btn text-white w-100" style="background-color: #2d7a73;">
+            Apply
+          </button>
+          <a href="?per_page={{ per_page }}" class="btn btn-outline-secondary w-100">Clear</a>
+        </div>
+      </form>
+    </div>
+  </div>
 
   <!-- Per-page selector -->
   <div class="card mb-3">
     <div class="card-body py-2">
       <form method="get" class="d-flex align-items-center gap-3">
+
+        <!-- Preserve all filter parameters -->
+        {% if search_query %}<input type="hidden" name="search" value="{{ search_query }}">{% endif %}
+        {% if status_filter and status_filter != 'all' %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
+        {% if min_amount %}<input type="hidden" name="min_amount" value="{{ min_amount }}">{% endif %}
+        {% if max_amount %}<input type="hidden" name="max_amount" value="{{ max_amount }}">{% endif %}
+        {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
+
         <input type="hidden" name="page" value="1">
         <label class="form-label mb-0">Results per page</label>
-        <select name="per_page" class="form-select form-select-sm w-auto"
-                onchange="this.form.submit()">
+        <select name="per_page" class="form-select form-select-sm w-auto" onchange="this.form.submit()">
           <option value="20" {% if per_page == 20 %}selected{% endif %}>20 per page</option>
           <option value="40" {% if per_page == 40 %}selected{% endif %}>40 per page</option>
         </select>
@@ -130,8 +264,9 @@
     </div>
   </div>
 
-    <div class="card shadow-sm">
-      <div class="card-body">
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <div class="table-responsive">
         <table class="table table-striped">
           <thead>
             <tr>
@@ -152,38 +287,33 @@
               <td>${{ inv.amount_dollars|floatformat:2 }}</td>
               <td>
                 {% if inv.display_status == "PAID" %}
-                  <span class="status-badge badge-paid">Paid</span>
+                <span class="status-badge badge-paid">Paid</span>
                 {% elif inv.display_status == "PENDING" %}
-                  <span class="status-badge badge-pending">Pending</span>
+                <span class="status-badge badge-pending">Pending</span>
                 {% elif inv.display_status == "VOIDED" %}
-                  <span class="status-badge badge-voided">Voided</span>
+                <span class="status-badge badge-voided">Voided</span>
                 {% else %}
-                  <span class="status-badge badge-failed">Failed</span>
+                <span class="status-badge badge-failed">Failed</span>
                 {% endif %}
               </td>
               <td>
                 {% if inv.status == 'PAID' %}
-                  <a href="{{ inv.hosted_invoice_url }}" target="_blank" class="text-muted small" >
-                    View PAID Invoice</a>
+                <a href="{{ inv.hosted_invoice_url }}" target="_blank" class="text-muted small">
+                  View PAID Invoice</a>
                 {% elif inv.status == 'VOIDED' %}
-                    <a href="{{ inv.hosted_invoice_url }}" target="_blank" class="text-muted small">
-                    View VOIDED Invoice</a>
+                <a href="{{ inv.hosted_invoice_url }}" target="_blank" class="text-muted small">
+                  View VOIDED Invoice</a>
                 {% elif inv.hosted_invoice_url %}
-                      <a href="{{ inv.hosted_invoice_url }}" target="_blank" class="btn btn-sm btn-pending-action rounded-pill px-3 shadow-sm">
-                    Pay Invoice</a>
+                <a href="{{ inv.hosted_invoice_url }}" target="_blank" class="btn btn-sm btn-pending-action rounded-pill px-3 shadow-sm">
+                  Pay Invoice</a>
                 {% else %}
-                  <p style="padding-left: 2rem; font-weight: 800;">-</p>
+                <p style="padding-left: 2rem; font-weight: 800;">-</p>
                 {% endif %}
               </td>
               <td>{{ inv.created_at|date:"M j, Y g:i A" }}</td>
               <td>
                 {% if inv.stripe_invoice_id %}
-                  <button
-                    class="btn-void"
-                    data-stripe-id="{{ inv.stripe_invoice_id }}"
-                    data-inv-id="{{ inv.id }}"
-                    {% if inv.display_status == "PAID" or inv.display_status == "VOIDED" %}disabled{% endif %}
-                  >Void</button>
+                <button class="btn-void" data-stripe-id="{{ inv.stripe_invoice_id }}" data-inv-id="{{ inv.id }}" {% if inv.display_status == "PAID" or inv.display_status == "VOIDED" %}disabled{% endif %}>Void</button>
                 {% else %}
                   <span style="color:#adb5bd;">—</span>
                 {% endif %}
@@ -198,108 +328,107 @@
         </table>
       </div>
     </div>
+  </div>
 
   <!-- Pagination -->
   {% if page_obj.has_other_pages %}
-    <nav class="mt-3">
-      <ul class="pagination justify-content-center">
+  <nav class="mt-3">
+    <ul class="pagination justify-content-center">
 
-        {% if page_obj.has_previous %}
-          <li class="page-item">
-            <a class="page-link"
-               href="?page={{ page_obj.previous_page_number }}&per_page={{ per_page }}">
-              Previous
-            </a>
-          </li>
+      {% if page_obj.has_previous %}
+      <li class="page-item">
+        <a class="page-link" href="?page={{ page_obj.previous_page_number }}&per_page={{ per_page }}{% if search_query %}&search={{ search_query }}{% endif %}{% if status_filter and status_filter != 'all' %}&status={{ status_filter }}{% endif %}{% if min_amount %}&min_amount={{ min_amount }}{% endif %}{% if max_amount %}&max_amount={{ max_amount }}{% endif %}{% if sort %}&sort={{ sort }}{% endif %}">
+          Previous
+        </a>
+      </li>
+      {% endif %}
+
+      {% for num in page_obj.paginator.page_range %}
+      {% if num >= page_obj.number|add:'-3' and num <= page_obj.number|add:'3' %} <li
+        class="page-item {% if page_obj.number == num %}active{% endif %}">
+        <a class="page-link" href="?page={{ num }}&per_page={{ per_page }}{% if search_query %}&search={{ search_query }}{% endif %}{% if status_filter and status_filter != 'all' %}&status={{ status_filter }}{% endif %}{% if min_amount %}&min_amount={{ min_amount }}{% endif %}{% if max_amount %}&max_amount={{ max_amount }}{% endif %}{% if sort %}&sort={{ sort }}{% endif %}">
+          {{ num }}
+        </a>
+        </li>
         {% endif %}
-
-        {% for num in page_obj.paginator.page_range %}
-          <li class="page-item {% if page_obj.number == num %}active{% endif %}">
-            <a class="page-link"
-               href="?page={{ num }}&per_page={{ per_page }}">
-              {{ num }}
-            </a>
-          </li>
         {% endfor %}
 
         {% if page_obj.has_next %}
-          <li class="page-item">
-            <a class="page-link"
-               href="?page={{ page_obj.next_page_number }}&per_page={{ per_page }}">
-              Next
-            </a>
-          </li>
+        <li class="page-item">
+          <a class="page-link" href="?page={{ page_obj.next_page_number }}&per_page={{ per_page }}{% if search_query %}&search={{ search_query }}{% endif %}{% if status_filter and status_filter != 'all' %}&status={{ status_filter }}{% endif %}{% if min_amount %}&min_amount={{ min_amount }}{% endif %}{% if max_amount %}&max_amount={{ max_amount }}{% endif %}{% if sort %}&sort={{ sort }}{% endif %}">
+            Next
+          </a>
+        </li>
         {% endif %}
 
-      </ul>
-    </nav>
+    </ul>
+  </nav>
   {% endif %}
-
- </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
-(function () {
-  function getCookie(name) {
-    let cookieValue = null;
-    if (document.cookie && document.cookie !== "") {
-      for (const cookie of document.cookie.split(";")) {
-        const c = cookie.trim();
-        if (c.startsWith(name + "=")) {
-          cookieValue = decodeURIComponent(c.slice(name.length + 1));
-          break;
+  (function () {
+    function getCookie(name) {
+      let cookieValue = null;
+      if (document.cookie && document.cookie !== "") {
+        for (const cookie of document.cookie.split(";")) {
+          const c = cookie.trim();
+          if (c.startsWith(name + "=")) {
+            cookieValue = decodeURIComponent(c.slice(name.length + 1));
+            break;
+          }
         }
       }
+      return cookieValue;
     }
-    return cookieValue;
-  }
 
-  document.querySelectorAll(".btn-void").forEach(function (btn) {
-    btn.addEventListener("click", async function () {
-      const stripeId = btn.dataset.stripeId;
-      const invId = btn.dataset.invId;
+    document.querySelectorAll(".btn-void").forEach(function (btn) {
+      btn.addEventListener("click", async function () {
+        const stripeId = btn.dataset.stripeId;
+        const invId = btn.dataset.invId;
 
-      if (!confirm("Are you sure you want to void Invoice #" + invId + "? This cannot be undone.")) {
-        return;
-      }
+        if (!confirm("Are you sure you want to void Invoice #" + invId + "? This cannot be undone.")) {
+          return;
+        }
 
-      btn.disabled = true;
-      btn.textContent = "Voiding\u2026";
+        btn.disabled = true;
+        btn.textContent = "Voiding\u2026";
 
-      try {
-        const response = await fetch(
-          "/api/admin/stripe/invoice/" + stripeId + "/void/",
-          {
-            method: "POST",
-            headers: {
-              "X-CSRFToken": getCookie("csrftoken"),
-              "Content-Type": "application/json",
-            },
+        try {
+          const response = await fetch(
+            "/api/admin/stripe/invoice/" + stripeId + "/void/",
+            {
+              method: "POST",
+              headers: {
+                "X-CSRFToken": getCookie("csrftoken"),
+                "Content-Type": "application/json",
+              },
+            }
+          );
+          const data = await response.json();
+
+          if (response.ok && data.status === "voided") {
+            const row = btn.closest("tr");
+            const badgeCell = row.querySelector(".status-badge");
+            if (badgeCell) {
+              badgeCell.className = "status-badge badge-voided";
+              badgeCell.textContent = "Voided";
+            }
+            btn.textContent = "Voided";
+          } else {
+            alert("Failed to void invoice: " + (data.message || data.error || "Unknown error"));
+            btn.disabled = false;
+            btn.textContent = "Void";
           }
-        );
-        const data = await response.json();
-
-        if (response.ok && data.status === "voided") {
-          const row = btn.closest("tr");
-          const badgeCell = row.querySelector(".status-badge");
-          if (badgeCell) {
-            badgeCell.className = "status-badge badge-voided";
-            badgeCell.textContent = "Voided";
-          }
-          btn.textContent = "Voided";
-        } else {
-          alert("Failed to void invoice: " + (data.message || data.error || "Unknown error"));
+        } catch (err) {
+          alert("Network error. Please try again.");
           btn.disabled = false;
           btn.textContent = "Void";
         }
-      } catch (err) {
-        alert("Network error. Please try again.");
-        btn.disabled = false;
-        btn.textContent = "Void";
-      }
+      });
     });
-  });
-})();
+  })();
 </script>
 {% endblock %}

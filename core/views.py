@@ -15,7 +15,7 @@ from allauth.account.adapter import get_adapter
 from allauth.account.models import EmailAddress, EmailConfirmation, get_emailconfirmation_model
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
-from sitecontent.models import WebsiteContent, FAQItem
+from sitecontent.models import WebsiteContent, FAQItem, PracticeAreaItem
 from django.conf import settings
 from finances.models import Invoice
 from appointments.models import Appointments, Invitee
@@ -35,10 +35,12 @@ def home(r):
     role = r.GET.get("role", "guest")
     return render(r, "home.html", {"role": role})
   
-# Is this method 
+
+from sitecontent.views import _annotate_pa_images
+
 def practice_areas(r):
-    content = WebsiteContent.objects.order_by("-versionNumber").first()
-    return render(r, "practice_areas.html", {"content": content})
+    areas = _annotate_pa_images(PracticeAreaItem.objects.filter(is_active=True))
+    return render(r, "practice_areas.html", {"practice_areas": areas})
 
 def about(r): return render(r, "about.html")
 def services(r): return render(r, "services.html")
@@ -70,17 +72,10 @@ def login(r):
     return render(r, "users/login.html", {"role": role})
 
 ############################ Admin Views ############################ 
-#  @superuser_required
-#def admin_dashboard(r): return render(r, "admin/dashboard.html")
-@superuser_required
-def admin_schedule(r): return render(r, "admin/schedule.html")
-# @superuser_required
-def admin_clients(r): return render(r, "admin/clients.html")
-# @superuser_required
 
 @superuser_required
 def admin_clients(request):
-    users = User.objects.filter(role__in=[User.Role.CLIENT])
+    users = User.objects.filter(role__in=[User.Role.CLIENT, User.Role.GUEST])
 
     # Search
     search_query = request.GET.get('search', '').strip()
@@ -128,7 +123,7 @@ def admin_editor(request):
     Admin editor view for editing WebsiteContent.
     Fetches the latest content version and allows editing.
     """
-    from .forms import WebsiteContentForm, FAQFormSet
+    from .forms import WebsiteContentForm, FAQFormSet, PracticeAreaFormSet
 
     # get the latest WebsiteContent or create default if none exists
     content = WebsiteContent.objects.order_by('-versionNumber').first()
@@ -142,8 +137,9 @@ def admin_editor(request):
     if request.method == 'POST':
         form = WebsiteContentForm(request.POST, instance=content)
         faq_formset = FAQFormSet(request.POST, queryset=FAQItem.objects.all(), prefix="faq")
+        pa_formset = PracticeAreaFormSet(request.POST, queryset=PracticeAreaItem.objects.all(), prefix="pa")
 
-        if form.is_valid() and faq_formset.is_valid():
+        if form.is_valid() and faq_formset.is_valid() and pa_formset.is_valid():
             with transaction.atomic():
                 form.save()
 
@@ -159,14 +155,34 @@ def admin_editor(request):
                     instance.save()
 
                 # Apply deterministic ordering while preserving user-entered order hints.
-                ordered_items = sorted(
+                ordered_faqs = sorted(
                     FAQItem.objects.all(),
                     key=lambda item: (item.display_order if item.display_order is not None else 10**9, item.id),
                 )
-                for index, item in enumerate(ordered_items, start=1):
+                for index, item in enumerate(ordered_faqs, start=1):
                     if item.display_order != index:
                         item.display_order = index
                         item.save(update_fields=["display_order"])
+
+                pa_instances = pa_formset.save(commit=False)
+                for deleted_obj in pa_formset.deleted_objects:
+                    deleted_obj.delete()
+                for instance in pa_instances:
+                    if not instance.pk and not (instance.title or "").strip():
+                        continue
+                    instance.save()
+
+                # Assign display_order by position in the formset (top = 1).
+                order = 1
+                for form in pa_formset.forms:
+                    if not form.cleaned_data or form.cleaned_data.get("DELETE"):
+                        continue
+                    instance = form.instance
+                    if instance.pk:
+                        if instance.display_order != order:
+                            instance.display_order = order
+                            instance.save(update_fields=["display_order"])
+                        order += 1
 
             messages.success(request, 'Website content updated successfully!')
             return redirect('admin_editor')
@@ -175,11 +191,13 @@ def admin_editor(request):
     else:
         form = WebsiteContentForm(instance=content)
         faq_formset = FAQFormSet(queryset=FAQItem.objects.all(), prefix="faq")
+        pa_formset = PracticeAreaFormSet(queryset=PracticeAreaItem.objects.all(), prefix="pa")
 
     return render(request, "admin/editor.html", {
         'form': form,
         'content': content,
         'faq_formset': faq_formset,
+        'pa_formset': pa_formset,
     })
 @superuser_required
 def admin_appointment_confirmation(r): return render(r, "admin/appointment_confirmation.html")
@@ -441,13 +459,15 @@ def get_user_account_data(request):
     }
 
 @login_required
-def client_contact(r): return render(r, "client/contact.html")
+def client_contact(r):
+    from sitecontent.views import contact
+    return contact(r, client=True)
 #@login_required
 #def client_payment(r): return render(r, "client/payment.html")
 @login_required
 def client_practice_areas(r):
-    content = WebsiteContent.objects.order_by("-versionNumber").first()
-    return render(r, "client/practice_areas.html", {"content": content})
+    areas = _annotate_pa_images(PracticeAreaItem.objects.filter(is_active=True))
+    return render(r, "client/practice_areas.html", {"practice_areas": areas})
 
 @login_required
 def client_invoices(r): 

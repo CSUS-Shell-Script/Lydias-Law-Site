@@ -1,5 +1,4 @@
 {% load static %}
-{% load phone_filter %}
 
 <style>
     .contact-header-card {
@@ -272,19 +271,19 @@
 <!--Three contact cards-->
 <div class="contact-card-container">
     <div class="contact-card">
-        <img src="{% static 'images/location.png'%}" alt="Location icon" style="width: 85px; height: 85px; padding: 1rem">
+        <img src="{% static 'images/location.png'%}" alt="Office location icon for {{location.officeLocation}}" title="Office Location" style="width: 85px; height: 85px; padding: 1rem">
         <h5>Office Location</h5>
         <p>{{location.officeLocation}}</p>
     </div>
     <div class="contact-card">
-        <img src="{% static 'images/telephone.png'%}" alt="Telephone icon" style="width: 85px; height: 85px; padding: 1rem">
+        <img src="{% static 'images/telephone.png'%}" alt="Telephone icon to call {{location.phoneNumber}}" title="Phone Number" style="width: 85px; height: 85px; padding: 1rem">
         <h5>Phone Number</h5>
-        <p>{{lydia.phone_number | format_phone}}</p>
+        <p>{{location.phoneNumber}}</p>
     </div>
     <div class="contact-card">
-        <img src="{% static 'images/email.png'%}" alt="Email icon" style="width: 85px; height: 85px; padding: 1rem">
+        <img src="{% static 'images/email.png'%}" alt="Email icon to contact at {{location.emailAddress}}" title="Email Address" style="width: 85px; height: 85px; padding: 1rem">
         <h5>Email Address</h5>
-        <p>{{lydia.email}}</p>
+        <p>{{location.emailAddress}}</p>
     </div>
 </div>
 

@@ -1,0 +1,15 @@
+User-agent: *
+Disallow: /administrator/
+Disallow: /client/
+Disallow: /admin/
+Disallow: /appointments/
+Disallow: /accounts/
+Disallow: /login/
+Disallow: /logout/
+Disallow: /users/
+Disallow: /payment/failure/
+Disallow: /payment/success/
+
+Allow: /
+
+Sitemap: https://adoptionsofsac.com/sitemap.xml
