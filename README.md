@@ -153,14 +153,42 @@ Through their dashboard, admin can:
 
 ### Running All Tests
  Make sure your virtual environment is activated and your `.env` file is configured, then run:
-```
+```bash
  python manage.py test
 ```
 ### Running Tests for a Specific App
 
- - python manage.py test appointments
- - python manage.py test finances
- - python manage.py test users
+ - `python manage.py test appointments`
+ - `python manage.py test finances`
+ - `python manage.py test users`
+
+You can also run a specific test class or method:
+
+```bash
+python manage.py test appointments.tests.AppointmentModelTests
+python manage.py test appointments.tests.AppointmentModelTests.test_create_appointment
+```
+
+### Running with Verbose Output
+
+```bash
+python manage.py test -v 2
+```
+
+Verbosity levels: `0` (minimal), `1` (default), `2` (verbose), `3` (very verbose).
+
+### Reading the Output
+
+A passing run ends with: `OK`
+
+A failing run will show `F` or `E` with a traceback indicating which test failed and why. Fix the issue and re-run until all tests pass.
+
+### Before Pushing Code
+
+Always run the full test suite before pushing your branch:
+- `python manage.py test`
+- Do not push if any tests are failing.
+- If a test is failing due to an intentional change, update the test rather than skipping it.   
 
 ## Developer Instructions (next semester)
  ...
