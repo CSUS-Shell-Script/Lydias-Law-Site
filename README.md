@@ -141,15 +141,27 @@ Through their dashboard, admin can:
 - Database: [MySQL](https://www.mysql.com/)
 
 ## 🔒 Security and Privacy
-- Beacuse the site handles user accounts, appoinments, and payments, it includes basic security measures to protect client data:
-  - Passwords are hashed and never soted in plain text
-  - Payment processing is handled through a secure thrid party provider, so no credit card information is stored on the site
+- Because the site handles user accounts, appoinments, and payments, it includes basic security measures to protect client data:
+  - Passwords are hashed and never stored in plain text
+  - Payment processing is handled through a secure third party provider, so no credit card information is stored on the site
   - Input validation and access controls help prevent unauthorized access
 
 ## Deployment (next semester)
  ... 
-## Testing (next semester)
- ...
+## Testing 
+ Lydia's Law Site uses Django's built-in test framework. Tests are located in a `tests.py` file inside each Django app.
+
+### Running All Tests
+ Make sure your virtual environment is activated and your `.env` file is configured, then run:
+```
+ python manage.py test
+```
+### Running Tests for a Specific App
+
+ - python manage.py test appointments
+ - python manage.py test finances
+ - python manage.py test users
+
 ## Developer Instructions (next semester)
  ...
 
