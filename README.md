@@ -140,12 +140,6 @@ Through their dashboard, admin can:
 - Framework: [Django](https://www.djangoproject.com/)
 - Database: [MySQL](https://www.mysql.com/)
 
-## Roadmap for Success🏆
-<p align="center">
-  <img src="assets/JIRA_Timeline.png" alt="Roadmap of Jira Timeline from Sprints" width="600"/>
-</p>
-
-
 ## 🔒 Security and Privacy
 - Beacuse the site handles user accounts, appoinments, and payments, it includes basic security measures to protect client data:
   - Passwords are hashed and never soted in plain text
