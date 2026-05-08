@@ -147,7 +147,20 @@ Through their dashboard, admin can:
   - Input validation and access controls help prevent unauthorized access
 
 ## Deployment (next semester)
- ... 
+- Stack
+  - Cloud Provider: DigitalOcean
+  - Web Server: Nginx
+  - App Server: Gunicorn
+  - Backend: Django
+  - Database: Managed MySQL on DigitalOcean
+  - CI/CD: GitHub Actions (self-hosted runner)
+  - Security: HTTPS, firewall
+
+- Deployment Process
+  1. Developer pushes code to main branch
+  2. GitHub Actions pipeline runs
+  3. Changes are automaitcally deployed to the production server
+  4. Website updates live
 ## Testing 
  Lydia's Law Site uses Django's built-in test framework. Tests are located in a `tests.py` file inside each Django app.
 
