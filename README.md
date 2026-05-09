@@ -190,8 +190,42 @@ Always run the full test suite before pushing your branch:
 - Do not push if any tests are failing.
 - If a test is failing due to an intentional change, update the test rather than skipping it.   
 
-## Developer Instructions (next semester)
- ...
+## Developer Instructions
+ In order to make changes to the code base, setting up the environment is crucial. These instructions will assume the use of a Windows system.
+
+### Installing Visual Studio Code
+You can download Visual Studio Code and use it as your IDE by going to the site below and choosing the Windows option. 
+
+```bash
+https://code.visualstudio.com/Download
+```
+### Installing Python
+Because this site uses Django, Python is required. It can be downloaded using the link below. The code base was created with Python version 3.8 or higer in mind. If any compatibility issues arise, version 3.8 is recomended.
+
+```bash
+https://www.python.org/downloads/
+```
+### Cloning the Repository
+In Visual Studio Code, make sure you are signed in to your Github account both for 'Sign in to sync settings' and 'Sign in with Github to use Github Pull Requests.' 
+
+You can then open a terminal and run the following command to clone the repository.
+```bash
+git clone https://github.com/CSUS-Shell-Script/Lydias-Law-Site.git
+```
+
+### Activating the Virtual Environment
+Once the repository is cloned, you can create the virtual environment by running the following command using Visual Studio Code.
+```Bash
+python -m venv .venv
+```
+Once created, the virtual environment can be activated by running the following command.
+```bash
+.venv/Scripts/Activate.ps1
+```
+Once the activating script has been executed, you will need to use the Visual Studio Code command palette to selects a Python Interperter. Make sure to select the virtual environment we have just created.
+```bash
+>Python: Select Interperter
+```
 
 ## Contributors 🐢
 - [Hunter Powell](https://github.com/hunterpowell)
