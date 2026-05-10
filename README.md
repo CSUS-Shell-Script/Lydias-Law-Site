@@ -239,6 +239,35 @@ Once the activating script has been executed, you will need to use the Visual St
 ```bash
 >Python: Select Interperter
 ```
+### Pip Install
+With your virtual environment now activated, you will need to install the correct packages and Python modules for the project.
+
+In a new terminal that has venv activated, execute the following command exactly as written: 
+```
+pip install -r requirements.txt
+```
+If your environment is configured properly, this should download all the required packages with the necessary versions from the corresponding “requirements.txt” file.
+
+### Environment Variables
+The last step to configure involves setting up your environment variables within the project. The “.env.example” file is within the repository to outline what variables are needed to run the project on your local machine. 
+
+Create a new .env file within the repository directory. Be sure that that this new file is created directly under the project folder 'Lydias-Law-Site' that you have cloned. If correctly configured, it should become grey signifying that it is a hidden file and will not be kept in git pushes.
+
+It is incredibly important that this file is greyed out and the information within is not shared with anyone else besides trusted developers. The information within the .env file will describe the secret tokens and api keys needed to access endpoints. 
+
+One of the more important environment variables is the PATH_TO_CERT variable (not mentioned in ".env.example" file but is very important to have). This certification will be provided by a trusted developer along with the rest of the keys. Use a relative path such as: “./certification.crt” and set it to the PATH_TO_CERT vairable in the ".env" file for easy configuration of the PATH_TO_CERT environment variable.
+
+Also note that the SECRET_KEY variable from ".env.example" is not used in the ".env" file.
+
+### Confirming Your Environment
+To confirm that your environment is working, open a terminal within VS Code and execute the following command: 
+```
+py manage.py runserver
+````
+If your environment is configured successfully, you should see the debug variable being set to 1 (from your ".env" file) which allows the project to run on localhost, the command executed in the terminal, as well as the local IP the local server is running on. You can click and open the local server link in your browser from the "Starting development server at http://..." part of your terminal to view the site on your localhost development enviornment. You can test your site through this development enviornment on your browser before deploying.
+
+If you face any errors, ensure that your debug variable in your .env is 1 and you have the proper keys set up with the correct variable names. 
+
 
 ## Contributors 🐢
 - [Hunter Powell](https://github.com/hunterpowell)
