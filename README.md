@@ -18,7 +18,8 @@ The project bridges real-world business needs with modern web development practi
 
 ## Getting Started 🚀
 
-### 🛠️ Prerequisites 
+### 🛠️ Prerequisites
+
 - Python 3.8 or higher installed
 - A configured database (or access credentials ready)
 - Google, Calendly, and Stripe API keys prepared for your .env file
@@ -28,35 +29,63 @@ The project bridges real-world business needs with modern web development practi
 ### 1. Create and activate virtual environment
 
 #### MacOS / Linux
+
 ```
 $ python3 -m venv venv/
 $ source venv/bin/activate
 ```
+
 #### Microsoft
+
 ```
 PS> py -m venv .venv\
 PS> .venv\Scripts\activate
 ```
 
 ### 2. Install necessary python packages (virtual environment should be activated before)
+
 ```
 $ pip install -r requirements.txt
 ```
+
 ### 3. Setting Up .env File 🔐
+
 #### MacOS / Linux
+
 ```
 cp .env.example .env
 ```
+
 #### Windows
+
 ```
 copy .env.example .env
 ```
-#### Configure the .env File
-###### Open the newly created .env file and fill in all the required environment variables (e.g., DATABASE_URL, SECRET_KEY, email settings, API keys, etc)
-###### ⚠️The application will not run properly without valid environment variables⚠️ 
 
-### 4. Running the Django Server ▶️
+#### Configure the .env File
+
+###### Open the newly created .env file and fill in all the required environment variables (e.g., DATABASE_URL, SECRET_KEY, email settings, API keys, etc)
+
+###### ⚠️The application will not run properly without valid environment variables⚠️
+
+### 4. Database
+
+The production site uses **MySQL on DigitalOcean** (managed database). The app expects database settings via environment variables—see **`.env.example`** and fill in values appropriate for your environment (including TLS: **`PATH_TO_CERT`** when connecting to the managed cluster).
+
+**Schema changes** are handled with **Django migrations** (files under each app’s `migrations/` folder). After pulling updates that include model changes, run:
+
+```bash
+python manage.py migrate
+```
+
+For how migrations work in Django, see the official docs: [Migrations](https://docs.djangoproject.com/en/stable/topics/migrations/).
+
+**Testing:** The test suite may use a separate in-memory database configuration (see `Lydias_Law_Site/settings.py`). Passing tests does not replace verifying connectivity against MySQL when you change DB-related settings.
+
+### 5. Running the Django Server ▶️
+
 #### Start the development Server once environment variables and dependencies are configured
+
 ```
 python manage.py runserver
 ```
@@ -64,24 +93,31 @@ python manage.py runserver
 ## Features
 
 ### 1. Overview
+
 Lydia's Law Site gives clients information about Lydia A. Suprun and her practice areas as an adoption lawyer. Clients can schedule appointments with her and make payments through the site. Aditionally, admin has control of what information the site contains and is able to manage appointments and payments.
 
 ### 2. Appointment Scheduling
+
 - Clients can schedule appointments through the Contact Page or through their dashboard once they log in 
 - Admin can schedule appointments for clients through their dashboard once they log in
 - Clients will automatically recieve an email confirmation and reminder with appointment information
 
 ### 3. Payment
+
 - Clients without an account are able to make payments through the payment page after recieving an invoice number
 - Clients with an account can automatically see how much they owe and make payments after they log in
 
 ### 4. Client Dashboard
+
 Through their dashboards, clients can:
+
 - Schedule, cancel, and view upcoming appointments
 - Make payments and view past transactions
 
 ### 5. Admin Dashboard
+
 Through their dashboard, admin can:
+
 - Schedule, cancel, and view upcoming and past appointments
 - View complete and uncomplete transaction
 - View client list
@@ -94,12 +130,14 @@ Through their dashboard, admin can:
 </p>
 
 ### Project Application (`Lydias_Law_Site`)
+
 - Stores the main project configuration, including:
   - Global Django settings
   - Root URL routing
   - WSGI/ASGI setup
 
 ### Core Application (`core`)
+
 - Contains most of the website’s foundational functionality, including:
   - All primary HTML templates
   - Main URL paths
@@ -108,6 +146,7 @@ Through their dashboard, admin can:
 ### Additional Applications
 
 #### 📅 Appointments (`appointments`)
+
 - Handles all Calendly-related operations, including sending and receiving API data.
 - Includes database models for:
   - Appointments
@@ -115,14 +154,17 @@ Through their dashboard, admin can:
   - Notifications
 
 #### 💰 Finances (`finances`)
+
 - Contains models for payments and invoices.
 - Will integrate with Stripe for financial transactions and tracking.
 
 #### 📝 Site Content (`sitecontent`)
+
 - Powers the Home, About, and Contact pages.
 - Contains models for storing dynamic site content.
 
 #### 👤 Users (`users`)
+
 - Manages all authentication and account processes, including:
   - Login and signup
   - Email verification
@@ -132,10 +174,14 @@ Through their dashboard, admin can:
   - Admin profiles
 
 ## 🧑‍💻 Tech Stack Overview
+
 ### Frontend:
+
 - Mark-up/Styling: HTML/CSS
 - Framework: [Bootstrap](https://getbootstrap.com/)
+
 ### Backend:
+
 - Programming Language: [Python](https://www.python.org/)
 - Framework: [Django](https://www.djangoproject.com/)
 - Database: [MySQL](https://www.mysql.com/)
@@ -263,13 +309,13 @@ Also note that the SECRET_KEY variable from ".env.example" is not used in the ".
 To confirm that your environment is working, open a terminal within VS Code and execute the following command: 
 ```
 py manage.py runserver
-````
+```
 If your environment is configured successfully, you should see the debug variable being set to 1 (from your ".env" file) which allows the project to run on localhost, the command executed in the terminal, as well as the local IP the local server is running on. You can click and open the local server link in your browser from the "Starting development server at http://..." part of your terminal to view the site on your localhost development enviornment. You can test your site through this development enviornment on your browser before deploying.
 
 If you face any errors, ensure that your debug variable in your .env is 1 and you have the proper keys set up with the correct variable names. 
 
-
 ## Contributors 🐢
+
 - [Hunter Powell](https://github.com/hunterpowell)
 - [Michael Kenny](https://github.com/mlkenny)
 - [Jason Prakash](https://github.com/jasoonkp)
@@ -278,3 +324,4 @@ If you face any errors, ensure that your debug variable in your .env is 1 and yo
 - [Regina Gil](https://github.com/reggiee76)
 - [Alex Giovannini](https://github.com/ARGiovannini)
 - [Nayeli Flores Valdez](https://github.com/nayelifv)
+
