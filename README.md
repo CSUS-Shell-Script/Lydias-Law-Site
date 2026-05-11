@@ -90,7 +90,7 @@ Through their dashboard, admin can:
 ## 🧱 Architecture Overview
 
 <p align="center">
-  <img src="assets/ERD.png" alt="Entity Relationship Diagram" width="600"/>
+  <img src="assets/LLW_ERD.png" alt="Entity Relationship Diagram" width="600"/>
 </p>
 
 ### Project Application (`Lydias_Law_Site`)
