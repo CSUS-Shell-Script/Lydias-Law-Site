@@ -192,21 +192,134 @@ Through their dashboard, admin can:
   - Payment processing is handled through a secure third party provider, so no credit card information is stored on the site
   - Input validation and access controls help prevent unauthorized access
 
-## Deployment (next semester)
-- Stack
-  - Cloud Provider: DigitalOcean
-  - Web Server: Nginx
-  - App Server: Gunicorn
-  - Backend: Django
-  - Database: Managed MySQL on DigitalOcean
-  - CI/CD: GitHub Actions (self-hosted runner)
-  - Security: HTTPS, firewall
+## Deployment
 
-- Deployment Process
-  1. Developer pushes code to main branch
-  2. GitHub Actions pipeline runs
-  3. Changes are automaitcally deployed to the production server
-  4. Website updates live
+Hosted on a DigitalOcean droplet with Gunicorn, Nginx, managed MySQL, HTTPS, and CI/CD via GitHub Actions.
+
+### Nginx Config (excerpt)
+```nginx
+location /static/ {
+    alias /home/deploy/apps/Lydias-Law-Site/staticfiles/;
+}
+location /media/ {
+    alias /home/deploy/apps/Lydias-Law-Site/media/;
+}
+location / {
+    include proxy_params;
+    proxy_pass http://unix:/run/gunicorn/gunicorn.sock;
+}
+```
+
+### Start Nginx
+```bash
+sudo nginx -t && sudo systemctl restart nginx
+```
+
+### Firewall
+```bash
+sudo ufw allow OpenSSH
+sudo ufw allow 'Nginx Full'
+sudo ufw enable
+```
+
+### Add Swap Memory
+```bash
+sudo fallocate -l 1G /swapfile && sudo chmod 600 /swapfile
+sudo mkswap /swapfile && sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+```
+
+### GitHub Actions Self-Hosted Runner
+Go to `github.com/<ORG>/<REPO>/settings/actions/runners` → New self-hosted runner → follow instructions, then:
+```bash
+sudo ./svc.sh install && sudo ./svc.sh start
+```
+
+### Deploy Script (`/home/deploy/deploy.sh`)
+```bash
+#!/usr/bin/env bash
+set -e
+cd /home/deploy/apps/Lydias-Law-Site
+git fetch origin && git checkout production && git reset --hard origin/production
+source venv/bin/activate
+pip install -r requirements.txt
+python manage.py migrate
+python manage.py collectstatic --noinput
+chmod -R o+rX /home/deploy/apps/Lydias-Law-Site/staticfiles
+sudo systemctl restart gunicorn && sudo systemctl restart nginx
+```
+```bash
+chmod +x /home/deploy/deploy.sh
+```
+
+### Passwordless Restart
+Add to sudoers (`sudo visudo`):
+```
+deploy ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart gunicorn, /usr/bin/systemctl restart nginx
+```
+
+### GitHub Workflow (`.github/workflows/deploy-production.yml`)
+```yaml
+name: Deploy to Production
+on:
+  push:
+    branches: [production]
+  workflow_dispatch:
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: [self-hosted, linux, x64]
+    steps:
+      - name: Deploy on droplet
+        run: /home/deploy/deploy.sh
+```
+
+**Flow:** Feature branch → PR → Merge into `production` → Auto Deploy
+
+### HTTPS
+```bash
+sudo apt install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d yourdomain.com -d www.yourdomain.com
+```
+
+### Calendly Webhook
+```bash
+curl -X POST https://api.calendly.com/webhook_subscriptions \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://yourdomain.com/calendly/webhook/",
+    "events": ["invitee.created", "invitee.canceled"],
+    "organization": "https://api.calendly.com/organizations/YOUR_ORG_UUID",
+    "scope": "organization",
+    "signing_key": "YOUR_SIGNING_KEY"
+  }'
+```
+
+### Useful Commands
+```bash
+sudo systemctl restart gunicorn nginx   # restart services
+sudo systemctl status gunicorn nginx    # check status
+/home/deploy/deploy.sh                  # manual deploy
+```
+
+### Update .env on Server
+```bash
+nano /home/deploy/apps/Lydias-Law-Site/.env
+```
+
+### Rollback
+```bash
+ssh deploy@<SERVER_IP>
+cd /home/deploy/apps/Lydias-Law-Site
+git log --oneline -5
+git reset --hard <COMMIT_ID>
+source venv/bin/activate && pip install -r requirements.txt
+python manage.py migrate
+sudo systemctl restart gunicorn nginx
+```
 ## Testing 
  Lydia's Law Site uses Django's built-in test framework. Tests are located in a `tests.py` file inside each Django app.
 
